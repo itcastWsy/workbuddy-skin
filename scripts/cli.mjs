@@ -69,6 +69,13 @@ function resolveThemePath(themeArg, state) {
     const b = join(P.bundledThemesDir, `${state.activeTheme}.json`);
     if (existsSync(b)) return b;
   }
+  // 默认主题：优先用已 seed 到用户库的文件——这是打包 exe 里唯一真实存在的地方
+  // （SEA exe 没有磁盘上的 assets/ 目录，直接返回 bundledThemesDir 路径会 ENOENT）。
+  const storeDefault = join(P.themesStoreDir(), "aurora-glass.json");
+  if (existsSync(storeDefault)) return storeDefault;
+  try { P.ensureSeeded(); } catch { /* ignore */ }
+  if (existsSync(storeDefault)) return storeDefault;
+  // dev 回退：直接读仓库里的 assets/
   const def = join(P.ASSETS, "theme.json");
   if (existsSync(def)) return def;
   return join(P.bundledThemesDir, "aurora-glass.json");

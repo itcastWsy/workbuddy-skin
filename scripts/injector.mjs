@@ -129,6 +129,14 @@ body[data-wb-skin="on"]:has(.main-content--chat .chat-container:not(.chat-contai
 
 
 // ---- 主题 -> 载荷 ----------------------------------------------------------
+function hexToRgb(hex) {
+  if (typeof hex !== "string") return null;
+  let h = hex.trim().replace(/^#/, "");
+  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  if (!/^[0-9a-fA-F]{6}$/.test(h)) return null;
+  return { r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16), b: parseInt(h.slice(4, 6), 16) };
+}
+
 function buildConfig() {
   // 剥掉可能存在的 UTF-8 BOM（PowerShell 5.1 的 Set-Content -Encoding UTF8 会写入 BOM）
   const theme = JSON.parse(readFileSync(THEME_PATH, "utf8").replace(/^\uFEFF/, ""));
@@ -149,6 +157,16 @@ function buildConfig() {
     ? theme.decorations.map(prepDeco).filter(Boolean)
     : [];
 
+  // 主题强调色（通常由壁纸自动取色，见 image.mjs / cli 的 bg set）。用 !important 覆盖
+  // skin.css 里不带 important 的描边变量：轻上色 = 玻璃描边 / 悬停 / 滚动条跟着壁纸变色，
+  // 面板底色与正文对比度不受影响。无强调色时下面两段为空串，走 skin.css 默认描边。
+  const acc = hexToRgb(theme.accent);
+  const accVars = (a) => acc
+    ? `\n  --wb-skin-accent:${theme.accent};\n  --wb-skin-border:rgba(${acc.r},${acc.g},${acc.b},${a[0]}) !important;\n  --wb-skin-border-strong:rgba(${acc.r},${acc.g},${acc.b},${a[1]}) !important;`
+    : "";
+  const accentDark = accVars([0.30, 0.44]);
+  const accentLight = accVars([0.32, 0.48]);
+
   // 由主题生成的 CSS 变量层, 覆盖 skin.css 里的回退值。明/暗各一套。
   const varsCss = `
 :root{--wb-skin-blur:${blur}px;--wb-skin-saturate:${sat};}
@@ -157,13 +175,13 @@ body[data-wb-skin="${MARKER}"]{
   --wb-skin-bg-light:${bgLight};
   --wb-skin-panel:rgba(17,21,40,${num(g.panelOpacityDark, 0.46)});
   --wb-skin-card:rgba(20,24,46,${num(g.cardOpacityDark, 0.34)});
-  --wb-skin-scrim:rgba(8,10,22,${num(g.chatScrimDark, 0.30)});
+  --wb-skin-scrim:rgba(8,10,22,${num(g.chatScrimDark, 0.30)});${accentDark}
 }
 body[data-wb-skin="${MARKER}"].vscode-light,
 body[data-wb-skin="${MARKER}"][data-vscode-theme-kind="vscode-light"]{
   --wb-skin-panel:rgba(255,255,255,${num(g.panelOpacityLight, 0.52)});
   --wb-skin-card:rgba(255,255,255,${num(g.cardOpacityLight, 0.62)});
-  --wb-skin-scrim:rgba(255,255,255,${num(g.chatScrimLight, 0.24)});
+  --wb-skin-scrim:rgba(255,255,255,${num(g.chatScrimLight, 0.24)});${accentLight}
 }`.trim();
 
   return { varsCss, skinCss, decoCss: DECO_CSS, decorations, marker: MARKER, themeName: theme.name || theme.id || "skin" };

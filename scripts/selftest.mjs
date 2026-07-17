@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { Jimp, JimpMime } from "jimp";
-import { processIntoStore, IMAGE_CAP_BYTES } from "./image.mjs";
+import { processIntoStore, IMAGE_CAP_BYTES, dominantAccent } from "./image.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ASSETS = resolve(__dirname, "..", "assets");
@@ -166,6 +166,36 @@ console.log("5) Auto-resize on import (image.mjs)");
   const p = await processIntoStore(bigSrc, tmp, { kind: "portrait" });
   assert(p.dest.endsWith(".png"), "portrait stored as .png (alpha preserved)");
   assert(p.bytes < bigBytes, `portrait shrank (${(p.bytes / 1024).toFixed(0)}KB < source)`);
+}
+
+console.log("6) Accent color extraction (image.mjs)");
+{
+  const tmp = mkdtempSync(join(tmpdir(), "wbskin-acc-"));
+
+  // Vivid teal-dominant image (+ mild jitter) -> accent hue should read teal-ish.
+  const W = 200;
+  const teal = new Jimp({ width: W, height: W, color: 0x00a0a0ff });
+  const td = teal.bitmap.data;
+  let s = 42;
+  for (let i = 0; i < td.length; i += 4) {
+    s = (s * 1103515245 + 12345) & 0x7fffffff;
+    td[i] = Math.max(0, Math.min(255, td[i] + ((s & 15) - 7)));
+    td[i + 1] = Math.max(0, Math.min(255, td[i + 1] + (((s >> 4) & 15) - 7)));
+    td[i + 2] = Math.max(0, Math.min(255, td[i + 2] + (((s >> 8) & 15) - 7)));
+  }
+  const tealSrc = join(tmp, "teal.png");
+  writeFileSync(tealSrc, await teal.getBuffer(JimpMime.png));
+  const acc = await dominantAccent(tealSrc);
+  assert(typeof acc === "string" && /^#[0-9a-f]{6}$/i.test(acc), "accent is a hex string (" + acc + ")");
+  const R = parseInt(acc.slice(1, 3), 16), G = parseInt(acc.slice(3, 5), 16), B = parseInt(acc.slice(5, 7), 16);
+  assert(G > R && B > R && Math.abs(G - B) < 45, `accent reads teal-ish (${acc})`);
+
+  // Pure grayscale wallpaper -> no accent (returns null, falls back to default border).
+  const gray = new Jimp({ width: 64, height: 64, color: 0x808080ff });
+  const graySrc = join(tmp, "gray.png");
+  writeFileSync(graySrc, await gray.getBuffer(JimpMime.png));
+  const none = await dominantAccent(graySrc);
+  assert(none === null, "grayscale wallpaper yields no accent (null)");
 }
 
 console.log("");

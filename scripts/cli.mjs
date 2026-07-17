@@ -23,7 +23,7 @@
 import { existsSync, copyFileSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join, resolve, basename } from "node:path";
 import * as P from "./platform.mjs";
-import { processIntoStore } from "./image.mjs";
+import { processIntoStore, dominantAccent } from "./image.mjs";
 
 // ---- arg parsing -----------------------------------------------------------
 function parseArgs(argv) {
@@ -84,7 +84,7 @@ function fileUrlOf(absPath) {
 
 // Bake wallpaper + portrait overrides into a runtime theme written to the state
 // dir. injector.mjs inlines the file:// urls to data URIs to bypass the CSP.
-function bakeRuntime(themePath, { bgAbs, portraitAbs } = {}) {
+function bakeRuntime(themePath, { bgAbs, portraitAbs, accent } = {}) {
   const obj = JSON.parse(readFileSync(themePath, "utf8").replace(/^\uFEFF/, ""));
   if (bgAbs) {
     if (!obj.background) obj.background = {};
@@ -93,6 +93,8 @@ function bakeRuntime(themePath, { bgAbs, portraitAbs } = {}) {
     obj.background.dark = `linear-gradient(180deg, rgba(8,10,22,0.10) 0%, rgba(8,10,22,0.22) 55%, rgba(8,10,22,0.46) 100%), url('${url}')`;
     obj.background.light = `linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.16) 100%), url('${url}')`;
   }
+  // 由壁纸自动取到的强调色（染玻璃描边/悬停/滚动条）；无则不写，注入器回退默认描边。
+  if (accent) obj.accent = accent;
   if (portraitAbs) {
     const slot = Array.isArray(obj.decorations)
       ? obj.decorations.find((d) => d && d.role === "portrait")
@@ -120,7 +122,10 @@ async function persistWallpaper(imgPath) {
   const abs = resolve(imgPath);
   const { dest, resized, bytes } = await processIntoStore(abs, P.wallpapersDir(), { kind: "wallpaper" });
   if (resized) P.ok(`Wallpaper auto-compressed -> ${(bytes / 1024).toFixed(0)} KB`);
-  return dest;
+  // 从入库后的壁纸提取强调色（自动主题色）。灰阶/失败返回 null，回退默认描边。
+  const accent = await dominantAccent(dest);
+  if (accent) P.ok(`Accent color from wallpaper -> ${accent}`);
+  return { dest, accent };
 }
 
 // Copy a user portrait image into the persistent portraits store; large images
@@ -179,12 +184,16 @@ async function cmdApply() {
 
   // wallpaper: explicit --bg, else reuse persisted one
   let bgStored = null;
+  let bgAccent = null;
   let bgArg = args.bg && args.bg !== true ? String(args.bg) : null;
   if (!bgArg && state && state.background && existsSync(state.background)) {
     bgStored = state.background;
+    bgAccent = state.accent || null;
     P.info(`Reusing saved wallpaper: ${bgStored}`);
   } else if (bgArg) {
-    bgStored = await persistWallpaper(bgArg);
+    const w = await persistWallpaper(bgArg);
+    bgStored = w.dest;
+    bgAccent = w.accent;
     P.ok(`Wallpaper stored -> ${bgStored}`);
   }
 
@@ -200,7 +209,7 @@ async function cmdApply() {
   }
 
   if (bgStored || portraitStored) {
-    themePath = bakeRuntime(themePath, { bgAbs: bgStored, portraitAbs: portraitStored });
+    themePath = bakeRuntime(themePath, { bgAbs: bgStored, portraitAbs: portraitStored, accent: bgAccent });
   }
 
   // resolve port + detect existing debug session
@@ -249,6 +258,7 @@ async function cmdApply() {
     port,
     activeTheme: themeIdOf(themePath === join(P.stateDir(), "_active-runtime.json") ? resolveThemePath(args.theme, state) : themePath),
     background: bgStored || (state && state.background) || null,
+    accent: bgAccent || (state && state.accent) || null,
     portrait: portraitStored || (state && state.portrait) || null,
     watchPid,
     appliedAt: new Date().toISOString(),
@@ -343,7 +353,7 @@ function cmdBg() {
     return cmdApply();
   }
   if (action === "clear") {
-    P.saveState({ background: null });
+    P.saveState({ background: null, accent: null });
     P.ok("Wallpaper cleared. Re-applying with the theme gradient ...");
     return cmdApply();
   }
@@ -375,6 +385,7 @@ async function cmdStatus() {
   console.log(`  Executable : ${state.exe || "(unknown)"}`);
   console.log(`  Theme      : ${state.activeTheme || "(default)"}`);
   console.log(`  Wallpaper  : ${state.background || "(gradient)"}`);
+  console.log(`  Accent     : ${state.accent || "(theme default)"}`);
   console.log(`  Portrait   : ${state.portrait || "(none)"}`);
   console.log(`  Port       : ${state.port || "(none)"}`);
   if (state.port) {

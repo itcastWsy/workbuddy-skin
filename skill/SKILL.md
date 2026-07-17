@@ -38,7 +38,7 @@ If WorkBuddy is already running WITHOUT a debug port, `apply` will ask for `--re
 
 | User wants… | Command |
 |---|---|
-| Just change the background image | `workbuddy-skin bg set "<image>"` |
+| Just change the background image (glass auto-tints to match) | `workbuddy-skin bg set "<image>"` |
 | Remove the wallpaper (back to gradient) | `workbuddy-skin bg clear` |
 | Switch the glass look / color scheme | `workbuddy-skin theme use <id>` |
 | List available themes | `workbuddy-skin theme list` |
@@ -65,6 +65,10 @@ Bundled theme ids include `aurora-glass`, `midnight`, `mono`, `sakura`, and
 
 - Changes to a live session hot-reload (no restart) when a debug port is already up.
 - The wallpaper/portrait/theme persist; later `apply` reuses them automatically.
+- **Auto accent**: `bg set` extracts the wallpaper's dominant color and tints the glass
+  borders/highlights to match — zero extra steps. Grayscale/near-monochrome images keep the
+  theme's default color. `bg clear` resets to the theme default; `status` shows the active
+  Accent hex.
 - Decorations (title banner, signature, stickers, portrait) show only on the home
   screen and auto-hide inside a task conversation.
 - Legal: ship no celebrity images. `portrait-fan` is a blank template — the user

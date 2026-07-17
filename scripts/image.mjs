@@ -86,3 +86,79 @@ export async function processIntoStore(srcAbs, destDir, { kind = "wallpaper" } =
   writeFileSync(dest, buf);
   return { dest, resized: true, bytes: buf.length };
 }
+
+// ============================================================================
+// 主题色提取
+//
+// 从壁纸里取一个"代表色"作为皮肤强调色：缩略图 -> 按色相分桶 -> 取最鲜艳的一桶
+// 的加权均值 -> 归一化到中等明度 / 较高饱和度，保证在明色和暗色玻璃上都读得出来。
+// 纯灰阶或无法解码时返回 null（调用方回退到默认描边色）。
+// ============================================================================
+function rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  let h = 0, s = 0;
+  const dd = max - min;
+  if (dd > 1e-6) {
+    s = l > 0.5 ? dd / (2 - max - min) : dd / (max + min);
+    if (max === r) h = (g - b) / dd + (g < b ? 6 : 0);
+    else if (max === g) h = (b - r) / dd + 2;
+    else h = (r - g) / dd + 4;
+    h /= 6;
+  }
+  return { h, s, l };
+}
+
+function hslToRgb(h, s, l) {
+  if (s <= 1e-6) { const v = Math.round(l * 255); return { r: v, g: v, b: v }; }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hue = (t) => {
+    if (t < 0) t += 1; if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  return {
+    r: Math.round(hue(h + 1 / 3) * 255),
+    g: Math.round(hue(h) * 255),
+    b: Math.round(hue(h - 1 / 3) * 255),
+  };
+}
+
+function toHex({ r, g, b }) {
+  return "#" + [r, g, b]
+    .map((v) => Math.max(0, Math.min(255, v | 0)).toString(16).padStart(2, "0"))
+    .join("");
+}
+
+// 返回归一化后的强调色 hex（如 "#3aa6a6"），或 null（灰阶 / 解码失败）。
+export async function dominantAccent(srcAbs) {
+  let img;
+  try { img = await Jimp.read(srcAbs); } catch { return null; }
+  img.scaleToFit({ w: 96, h: 96 }); // 采样够用又快
+
+  const d = img.bitmap.data;
+  const N = 24; // 15° 一桶
+  const bins = Array.from({ length: N }, () => ({ w: 0, r: 0, g: 0, b: 0 }));
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] < 8) continue; // 跳过透明像素
+    const { h, s, l } = rgbToHsl(d[i], d[i + 1], d[i + 2]);
+    if (l < 0.12 || l > 0.9 || s < 0.18) continue; // 跳过近黑 / 近白 / 灰
+    const w = s * (1 - Math.abs(l - 0.5) * 0.6); // 偏好鲜艳的中间调
+    const bin = Math.min(N - 1, Math.floor(h * N));
+    bins[bin].w += w;
+    bins[bin].r += d[i] * w; bins[bin].g += d[i + 1] * w; bins[bin].b += d[i + 2] * w;
+  }
+
+  let best = bins[0];
+  for (const b of bins) if (b.w > best.w) best = b;
+  if (best.w <= 0) return null; // 纯灰阶壁纸：不取色
+
+  let { h, s, l } = rgbToHsl(best.r / best.w, best.g / best.w, best.b / best.w);
+  s = Math.min(0.85, Math.max(0.5, s));  // 归一化：够艳但不刺眼
+  l = Math.min(0.62, Math.max(0.48, l)); // 归一化：中等明度，明暗玻璃都读得出
+  return toHex(hslToRgb(h, s, l));
+}

@@ -38,15 +38,24 @@ export async function processIntoStore(srcAbs, destDir, { kind = "wallpaper" } =
     return { dest, resized: false, bytes: srcBytes };
   }
 
-  // 需要压缩：交给 jimp 解码。无法解码（非常规图片）时回退原样拷贝并告警。
+  // 需要压缩：交给 jimp 解码。无法解码（webp/heic/heif/avif 等 jimp 不支持的格式，
+  // 或损坏文件）时——注意此分支只在图片已超过体积上限时才会走到——原样拷贝会因为内联后
+  // 过大而被浏览器丢弃、静默没壁纸。所以这里给出明确、可执行的中文告警，并标记 undisplayable。
   let img;
   try {
     img = await Jimp.read(srcAbs);
   } catch (e) {
     const dest = join(destDir, srcBase);
     copyFileSync(srcAbs, dest);
-    console.warn("[wb-skin] 无法解码该图片进行压缩，原样使用:", e.message);
-    return { dest, resized: false, bytes: srcBytes };
+    const ext = (extname(srcBase).slice(1) || "").toLowerCase();
+    const unsupported = ["webp", "heic", "heif", "avif"].includes(ext);
+    console.warn(
+      `[wb-skin] 这张图（${srcBase}，约 ${(srcBytes / 1024).toFixed(0)} KB）无法压缩` +
+      (unsupported ? `：不支持 ${ext.toUpperCase()} 格式的自动压缩。` : `：无法解码（可能已损坏）。`) +
+      `图片偏大，直接内联很可能超出浏览器 CSS 上限而不显示。` +
+      `请先转成 JPG 或 PNG（或换一张更小的图）再设为壁纸/立绘。`
+    );
+    return { dest, resized: false, bytes: srcBytes, undisplayable: true };
   }
 
   // 缩放到最长边不超过 maxDim（保持宽高比）。

@@ -131,8 +131,9 @@ function themeHasPortraitSlot(themePath) {
 async function persistWallpaper(imgPath) {
   if (!existsSync(imgPath)) throw new Error(`Background image not found: ${imgPath}`);
   const abs = resolve(imgPath);
-  const { dest, resized, bytes } = await processIntoStore(abs, P.wallpapersDir(), { kind: "wallpaper" });
+  const { dest, resized, bytes, undisplayable } = await processIntoStore(abs, P.wallpapersDir(), { kind: "wallpaper" });
   if (resized) P.ok(`Wallpaper auto-compressed -> ${(bytes / 1024).toFixed(0)} KB`);
+  if (undisplayable) P.warn("这张壁纸格式无法压缩、体积偏大，很可能不会显示（详见上面的提示）。建议转成 JPG/PNG 后重试。");
   // 从入库后的壁纸提取强调色（自动主题色）。灰阶/失败返回 null，回退默认描边。
   const accent = await dominantAccent(dest);
   if (accent) P.ok(`Accent color from wallpaper -> ${accent}`);
@@ -167,6 +168,10 @@ function cmdInstall() {
   console.log("  Switch    : workbuddy-skin theme use midnight");
   console.log("  Restore   : workbuddy-skin restore");
 }
+
+// Set while the interactive menu is active (see interactiveMenu). Lets apply-time
+// prompts (e.g. "restart WorkBuddy?") run in-menu instead of exiting the process.
+let MENU_RL = null;
 
 async function cmdApply() {
   const state = P.readState();
@@ -227,7 +232,17 @@ async function cmdApply() {
     if (debugLive) {
       P.info(`Existing debug session on port ${port}; re-injecting without restart.`);
     } else if (running.length) {
-      if (!args.restart) {
+      let doRestart = !!args.restart;
+      if (!doRestart && MENU_RL) {
+        const ans = (await ask(MENU_RL, "\n检测到 WorkBuddy 正在运行，但没有开启调试端口，需要重启它才能换肤。现在重启并应用吗？(y/n)：")).toLowerCase();
+        doRestart = ans === "y" || ans === "yes" || ans === "是";
+      }
+      if (!doRestart) {
+        if (MENU_RL) {
+          P.warn("已取消：WorkBuddy 未重启，皮肤未应用。");
+          P.info("你可以先手动关闭 WorkBuddy 再来换肤；Windows 上也可用菜单「6) 开机自启换肤」，之后无需每次重启。");
+          return;
+        }
         P.warn("WorkBuddy is running WITHOUT a debug port; it must restart to apply the skin.");
         P.warn("Re-run with --restart to restart automatically.");
         process.exit(3);
@@ -271,6 +286,15 @@ async function cmdApply() {
   const v = await P.runInjector(["verify", "--port", String(port)]);
   if (v.status === 0) P.ok("Skin applied. Enjoy your WorkBuddy.");
   else P.warn("Verify did not confirm yet; it may still be loading. Re-run apply if needed.");
+
+  // 换肤是运行时注入、不落地：WorkBuddy 重启/自更新后会消失。给双击版用户一句持久化提示。
+  if (MENU_RL && v.status === 0) {
+    const st = P.readState();
+    if (!(st && st.autostart)) {
+      if (P.IS_WIN) P.info("提示：WorkBuddy 重启或自动更新后皮肤会消失。想每次自动生效，请在菜单选「6) 开机自启换肤」。");
+      else P.info("提示：WorkBuddy 重启或自动更新后皮肤会消失，重新打开后再运行一次「应用皮肤」即可。");
+    }
+  }
 }
 
 async function cmdRestore() {
@@ -525,6 +549,7 @@ async function setExeInteractive(rl) {
 
 async function interactiveMenu() {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
+  MENU_RL = rl;
   const pause = async () => { await ask(rl, "\n按回车键返回菜单..."); };
   try {
     for (; ;) {
@@ -565,10 +590,22 @@ async function interactiveMenu() {
         else { console.log("无效的选项。"); }
       } catch (e) { P.err(e.message); await pause(); }
     }
-  } finally { rl.close(); }
+  } finally { MENU_RL = null; rl.close(); }
 }
 
 // ---- dispatch --------------------------------------------------------------
+// Wind down fetch/undici keep-alive sockets before exiting. Otherwise the process
+// is force-exited while a socket handle is still closing, which on Windows prints a
+// harmless libuv teardown assertion (async.c) to stderr — scary-looking but benign.
+async function softExit(code) {
+  try {
+    const disp = globalThis[Symbol.for("undici.globalDispatcher.1")];
+    if (disp && typeof disp.close === "function") await disp.close();
+  } catch { /* ignore */ }
+  await new Promise((r) => setTimeout(r, 40));
+  process.exit(code);
+}
+
 (async () => {
   // hidden route: the self-exec'd watch daemon (see spawnInjectorDetached)
   if (CLI_ARGV[0] === "__inject") {
@@ -582,7 +619,7 @@ async function interactiveMenu() {
   try { P.ensureSeeded(); } catch { /* non-fatal */ }
 
   // no args (e.g. double-clicked exe, or bare `workbuddy-skin`) → menu
-  if (CLI_ARGV.length === 0) { await interactiveMenu(); process.exit(0); }
+  if (CLI_ARGV.length === 0) { await interactiveMenu(); await softExit(0); }
 
   try {
     switch (CMD) {
@@ -604,5 +641,5 @@ async function interactiveMenu() {
   }
   // fetch() keep-alive sockets to the debug endpoint can hold the event loop
   // open; exit explicitly once the command has completed (watch runs detached).
-  process.exit(0);
+  await softExit(0);
 })();

@@ -7,9 +7,12 @@
 //
 // Run: node scripts/selftest.mjs
 // ============================================================================
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdtempSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { Jimp, JimpMime } from "jimp";
+import { processIntoStore, IMAGE_CAP_BYTES } from "./image.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ASSETS = resolve(__dirname, "..", "assets");
@@ -127,6 +130,43 @@ assert(removed === true, "__wbSkinRemove returned true");
 assert(doc.getElementById("wb-skin-bg") === null, "background layer removed");
 assert(doc.getElementById("wb-skin-style") === null, "main style removed");
 assert(doc.body.getAttribute("data-wb-skin") === null, "body marker removed");
+
+console.log("5) Auto-resize on import (image.mjs)");
+{
+  const tmp = mkdtempSync(join(tmpdir(), "wbskin-"));
+
+  // 5a. Small file short-circuits: copied verbatim, no re-encode.
+  const smallSrc = join(tmp, "small.png");
+  writeFileSync(smallSrc, Buffer.alloc(2048, 7)); // 2KB, well under the cap
+  const small = await processIntoStore(smallSrc, tmp, { kind: "wallpaper" });
+  assert(small.resized === false, "small source copied as-is (no re-encode)");
+  assert(small.bytes === 2048, "small source bytes unchanged");
+
+  // Build one oversized, poorly-compressible source (LCG pseudo-noise PNG).
+  const N = 2000;
+  const noisy = new Jimp({ width: N, height: N, color: 0x000000ff });
+  const d = noisy.bitmap.data;
+  let s = 123456789;
+  for (let i = 0; i < d.length; i += 4) {
+    s = (s * 1103515245 + 12345) & 0x7fffffff;
+    d[i] = s & 255; d[i + 1] = (s >> 8) & 255; d[i + 2] = (s >> 16) & 255; d[i + 3] = 255;
+  }
+  const bigSrc = join(tmp, "big.png");
+  writeFileSync(bigSrc, await noisy.getBuffer(JimpMime.png));
+  const bigBytes = statSync(bigSrc).size;
+  assert(bigBytes > IMAGE_CAP_BYTES, `test source exceeds cap (${(bigBytes / 1024 / 1024).toFixed(1)}MB)`);
+
+  // 5b. Oversized wallpaper -> re-encoded to a smaller JPEG.
+  const w = await processIntoStore(bigSrc, tmp, { kind: "wallpaper" });
+  assert(w.resized === true, "oversized wallpaper was re-encoded");
+  assert(w.dest.endsWith(".jpg"), "wallpaper stored as .jpg");
+  assert(w.bytes < bigBytes, `wallpaper shrank (${(w.bytes / 1024).toFixed(0)}KB < source)`);
+
+  // 5c. Oversized portrait -> stays PNG (alpha preserved), downscaled smaller.
+  const p = await processIntoStore(bigSrc, tmp, { kind: "portrait" });
+  assert(p.dest.endsWith(".png"), "portrait stored as .png (alpha preserved)");
+  assert(p.bytes < bigBytes, `portrait shrank (${(p.bytes / 1024).toFixed(0)}KB < source)`);
+}
 
 console.log("");
 if (failures) { console.error(`SELFTEST FAILED: ${failures} assertion(s).`); process.exit(1); }

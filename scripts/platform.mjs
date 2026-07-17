@@ -57,6 +57,11 @@ export function wallpapersDir() {
   if (!existsSync(d)) mkdirSync(d, { recursive: true });
   return d;
 }
+export function portraitsDir() {
+  const d = join(stateDir(), "portraits");
+  if (!existsSync(d)) mkdirSync(d, { recursive: true });
+  return d;
+}
 export const bundledThemesDir = join(ASSETS, "themes");
 
 // ---- state (clean UTF-8, no BOM — Node writes it correctly) ----------------

@@ -23,6 +23,7 @@
 import { existsSync, copyFileSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join, resolve, basename } from "node:path";
 import * as P from "./platform.mjs";
+import { processIntoStore } from "./image.mjs";
 
 // ---- arg parsing -----------------------------------------------------------
 function parseArgs(argv) {
@@ -81,26 +82,54 @@ function fileUrlOf(absPath) {
   return P.IS_WIN ? `file:///${norm}` : `file://${norm}`;
 }
 
-// Bake a wallpaper into a runtime theme (gradient scrim + url). injector.mjs
-// inlines the file:// url to a data URI to bypass the renderer CSP.
-function bakeWallpaper(themePath, imgAbs) {
+// Bake wallpaper + portrait overrides into a runtime theme written to the state
+// dir. injector.mjs inlines the file:// urls to data URIs to bypass the CSP.
+function bakeRuntime(themePath, { bgAbs, portraitAbs } = {}) {
   const obj = JSON.parse(readFileSync(themePath, "utf8").replace(/^\uFEFF/, ""));
-  if (!obj.background) obj.background = {};
-  const url = fileUrlOf(imgAbs);
-  // Dark: top bright (sky), bottom slightly darker for input-bar readability.
-  obj.background.dark = `linear-gradient(180deg, rgba(8,10,22,0.10) 0%, rgba(8,10,22,0.22) 55%, rgba(8,10,22,0.46) 100%), url('${url}')`;
-  obj.background.light = `linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.16) 100%), url('${url}')`;
+  if (bgAbs) {
+    if (!obj.background) obj.background = {};
+    const url = fileUrlOf(bgAbs);
+    // Dark: top bright (sky), bottom slightly darker for input-bar readability.
+    obj.background.dark = `linear-gradient(180deg, rgba(8,10,22,0.10) 0%, rgba(8,10,22,0.22) 55%, rgba(8,10,22,0.46) 100%), url('${url}')`;
+    obj.background.light = `linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.16) 100%), url('${url}')`;
+  }
+  if (portraitAbs) {
+    const slot = Array.isArray(obj.decorations)
+      ? obj.decorations.find((d) => d && d.role === "portrait")
+      : null;
+    if (slot) slot.src = fileUrlOf(portraitAbs);
+    else P.warn('This theme has no "portrait" decoration slot; --portrait ignored.');
+  }
   const runtime = join(P.stateDir(), "_active-runtime.json");
   writeFileSync(runtime, JSON.stringify(obj, null, 2), "utf8");
   return runtime;
 }
 
-// Copy a user image into the persistent wallpapers store; return stored path.
-function persistWallpaper(imgPath) {
+function themeHasPortraitSlot(themePath) {
+  try {
+    const o = JSON.parse(readFileSync(themePath, "utf8").replace(/^\uFEFF/, ""));
+    return Array.isArray(o.decorations) && o.decorations.some((d) => d && d.role === "portrait");
+  } catch { return false; }
+}
+
+// Copy a user image into the persistent wallpapers store; large images are
+// auto-compressed (see image.mjs) so the inlined data URI stays under the CSS
+// size limit. Returns the stored path.
+async function persistWallpaper(imgPath) {
   if (!existsSync(imgPath)) throw new Error(`Background image not found: ${imgPath}`);
   const abs = resolve(imgPath);
-  const dest = join(P.wallpapersDir(), basename(abs));
-  if (resolve(dest) !== abs) copyFileSync(abs, dest);
+  const { dest, resized, bytes } = await processIntoStore(abs, P.wallpapersDir(), { kind: "wallpaper" });
+  if (resized) P.ok(`Wallpaper auto-compressed -> ${(bytes / 1024).toFixed(0)} KB`);
+  return dest;
+}
+
+// Copy a user portrait image into the persistent portraits store; large images
+// are auto-compressed (PNG, alpha preserved). Returns the stored path.
+async function persistPortrait(imgPath) {
+  if (!existsSync(imgPath)) throw new Error(`Portrait image not found: ${imgPath}`);
+  const abs = resolve(imgPath);
+  const { dest, resized, bytes } = await processIntoStore(abs, P.portraitsDir(), { kind: "portrait" });
+  if (resized) P.ok(`Portrait auto-compressed -> ${(bytes / 1024).toFixed(0)} KB`);
   return dest;
 }
 
@@ -155,10 +184,24 @@ async function cmdApply() {
     bgStored = state.background;
     P.info(`Reusing saved wallpaper: ${bgStored}`);
   } else if (bgArg) {
-    bgStored = persistWallpaper(bgArg);
+    bgStored = await persistWallpaper(bgArg);
     P.ok(`Wallpaper stored -> ${bgStored}`);
   }
-  if (bgStored) { themePath = bakeWallpaper(themePath, bgStored); }
+
+  // portrait: explicit --portrait, else reuse persisted one (only if theme has a slot)
+  let portraitStored = null;
+  let portraitArg = args.portrait && args.portrait !== true ? String(args.portrait) : null;
+  if (portraitArg) {
+    portraitStored = await persistPortrait(portraitArg);
+    P.ok(`Portrait stored -> ${portraitStored}`);
+  } else if (state && state.portrait && existsSync(state.portrait) && themeHasPortraitSlot(themePath)) {
+    portraitStored = state.portrait;
+    P.info(`Reusing saved portrait: ${portraitStored}`);
+  }
+
+  if (bgStored || portraitStored) {
+    themePath = bakeRuntime(themePath, { bgAbs: bgStored, portraitAbs: portraitStored });
+  }
 
   // resolve port + detect existing debug session
   let port = Number(args.port || 0);
@@ -206,6 +249,7 @@ async function cmdApply() {
     port,
     activeTheme: themeIdOf(themePath === join(P.stateDir(), "_active-runtime.json") ? resolveThemePath(args.theme, state) : themePath),
     background: bgStored || (state && state.background) || null,
+    portrait: portraitStored || (state && state.portrait) || null,
     watchPid,
     appliedAt: new Date().toISOString(),
     projectRoot: P.ROOT,
@@ -306,6 +350,22 @@ function cmdBg() {
   throw new Error('Usage: bg set <image> | bg clear');
 }
 
+function cmdPortrait() {
+  const action = (SUB || "").toLowerCase();
+  if (action === "set") {
+    const img = args._[2];
+    if (!img) throw new Error("Usage: portrait set <image>");
+    args.portrait = img;
+    return cmdApply();
+  }
+  if (action === "clear") {
+    P.saveState({ portrait: null });
+    P.ok("Portrait cleared. Re-applying ...");
+    return cmdApply();
+  }
+  throw new Error('Usage: portrait set <image> | portrait clear');
+}
+
 async function cmdStatus() {
   const state = P.readState();
   console.log("WorkBuddy Skin — status");
@@ -315,6 +375,7 @@ async function cmdStatus() {
   console.log(`  Executable : ${state.exe || "(unknown)"}`);
   console.log(`  Theme      : ${state.activeTheme || "(default)"}`);
   console.log(`  Wallpaper  : ${state.background || "(gradient)"}`);
+  console.log(`  Portrait   : ${state.portrait || "(none)"}`);
   console.log(`  Port       : ${state.port || "(none)"}`);
   if (state.port) {
     const live = await P.isPortReachable(Number(state.port));
@@ -337,12 +398,15 @@ Commands:
   theme use <id|path>          switch active theme (re-injects if live)
   bg set <image>               use a local image as wallpaper (persists)
   bg clear                     back to the theme's gradient
+  portrait set <image>         put a portrait cutout into a portrait theme (persists)
+  portrait clear               remove the portrait slot image
   status                       show current state
   help                         this message
 
 apply options:
   --theme <id|path>            theme to use
   --bg <image>                 wallpaper image (also persisted)
+  --portrait <image>           portrait cutout for a portrait theme (also persisted)
   --port <n>                   debug port (default: auto from 9345)
   --exe <path>                 explicit WorkBuddy path
   --restart                    restart a running WorkBuddy without prompting
@@ -364,6 +428,7 @@ Examples:
       case "restore": await cmdRestore(); break;
       case "theme": await cmdTheme(); break;
       case "bg": case "background": await cmdBg(); break;
+      case "portrait": await cmdPortrait(); break;
       case "status": await cmdStatus(); break;
       case "help": case "--help": case "-h": cmdHelp(); break;
       default: P.err(`Unknown command: ${CMD}`); cmdHelp(); process.exit(2);

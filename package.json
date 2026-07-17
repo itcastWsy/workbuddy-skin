@@ -1,6 +1,6 @@
 {
   "name": "workbuddy-skin",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Give WorkBuddy a background wallpaper + frosted-glass UI via loopback CDP injection. Cross-platform (Windows/macOS/Linux), reversible, no official files modified.",
   "type": "module",
   "bin": {
@@ -10,7 +10,8 @@
     "apply": "node bin/workbuddy-skin.mjs apply",
     "restore": "node bin/workbuddy-skin.mjs restore",
     "status": "node bin/workbuddy-skin.mjs status",
-    "test": "node scripts/selftest.mjs"
+    "test": "node scripts/selftest.mjs",
+    "prepublishOnly": "node scripts/selftest.mjs"
   },
   "engines": {
     "node": ">=18"
@@ -19,6 +20,7 @@
     "bin/",
     "scripts/",
     "assets/",
+    "skill/",
     "README.md",
     "LICENSE"
   ],
@@ -31,5 +33,8 @@
     "wallpaper",
     "glassmorphism"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "jimp": "^1.6.1"
+  }
 }

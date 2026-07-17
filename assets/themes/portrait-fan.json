@@ -1,0 +1,136 @@
+{
+  "$schema": "../theme.schema.json",
+  "id": "portrait-fan",
+  "name": "立绘应援 / Portrait Fan",
+  "version": 1,
+  "author": "workbuddy-skin",
+  "appearance": "auto",
+  "comment": "粉丝应援风：抹茶奶油玻璃 + 装饰层（标题横幅 / 手写签名 / 印章 / 贴纸 / 立绘槽）。立绘请自备一张去背 PNG：workbuddy-skin portrait set <图片路径>；未提供时首页右下角显示虚线占位框。装饰仅在首页显示，进入具体任务对话自动隐藏。",
+  "background": {
+    "dark": "radial-gradient(120% 120% at 12% 8%, rgba(124,138,90,0.42) 0%, rgba(124,138,90,0) 46%), radial-gradient(110% 110% at 92% 16%, rgba(201,138,155,0.34) 0%, rgba(201,138,155,0) 48%), linear-gradient(150deg, #1a1c14 0%, #20241a 48%, #14160f 100%)",
+    "light": "radial-gradient(120% 120% at 10% 6%, rgba(190,205,150,0.55) 0%, rgba(190,205,150,0) 46%), radial-gradient(110% 110% at 94% 14%, rgba(240,205,215,0.55) 0%, rgba(240,205,215,0) 48%), linear-gradient(150deg, #f6f4ea 0%, #f1f3e6 46%, #f7eef0 100%)"
+  },
+  "glass": {
+    "blur": 20,
+    "saturate": 1.12,
+    "panelOpacityDark": 0.48,
+    "panelOpacityLight": 0.55,
+    "cardOpacityDark": 0.36,
+    "cardOpacityLight": 0.66,
+    "chatScrimDark": 0.30,
+    "chatScrimLight": 0.22
+  },
+  "decorations": [
+    {
+      "id": "title",
+      "type": "text",
+      "text": "✿ 专属定制皮肤 ✿",
+      "anchor": "top-center",
+      "dy": 20,
+      "size": 26,
+      "weight": 800,
+      "color": "#5c6b3f",
+      "font": "'Yuanti SC','STYuanti','PingFang SC','Microsoft YaHei',sans-serif",
+      "letterSpacing": 2,
+      "shadow": true
+    },
+    {
+      "id": "subtitle",
+      "type": "text",
+      "text": "Fan Edition · 把你喜欢的人放进 WorkBuddy",
+      "anchor": "top-center",
+      "dy": 62,
+      "size": 13,
+      "weight": 500,
+      "color": "#8a7b5f",
+      "font": "'PingFang SC','Microsoft YaHei',sans-serif",
+      "letterSpacing": 1
+    },
+    {
+      "id": "signature",
+      "type": "text",
+      "text": "Be a Star",
+      "anchor": "top-right",
+      "dx": 150,
+      "dy": 78,
+      "size": 34,
+      "italic": true,
+      "color": "#6b7a4a",
+      "font": "'Segoe Script','Bradley Hand','Brush Script MT',cursive",
+      "rotate": -8,
+      "shadow": true
+    },
+    {
+      "id": "stamp",
+      "type": "svg",
+      "anchor": "top-right",
+      "dx": 40,
+      "dy": 128,
+      "width": 118,
+      "rotate": 9,
+      "opacity": 0.9,
+      "svg": "<svg width='118' height='118' viewBox='0 0 120 120' xmlns='http://www.w3.org/2000/svg'><g fill='none' stroke='#7c8a5a' stroke-width='2' opacity='0.85'><circle cx='60' cy='60' r='54'/><circle cx='60' cy='60' r='45' stroke-dasharray='3 4'/></g><text x='60' y='50' text-anchor='middle' font-family='Georgia,serif' font-size='13' fill='#7c8a5a' letter-spacing='1.5'>EXCLUSIVE</text><text x='60' y='70' text-anchor='middle' font-family='Georgia,serif' font-size='11' fill='#7c8a5a' letter-spacing='2'>FAN SKIN</text><text x='60' y='92' text-anchor='middle' font-size='13' fill='#c98a9b'>&#9733;</text></svg>"
+    },
+    {
+      "id": "id-tag",
+      "type": "text",
+      "text": "专属定制 · 唯一 ID: FAN_0000",
+      "anchor": "top-right",
+      "dx": 40,
+      "dy": 258,
+      "size": 12,
+      "weight": 600,
+      "color": "#7c8a5a",
+      "font": "'PingFang SC','Microsoft YaHei',sans-serif",
+      "letterSpacing": 0.5,
+      "align": "right"
+    },
+    {
+      "id": "sticker-star",
+      "type": "text",
+      "text": "✦",
+      "anchor": "top-left",
+      "dx": 250,
+      "dy": 70,
+      "size": 26,
+      "color": "#c9b45a",
+      "opacity": 0.85,
+      "rotate": -10
+    },
+    {
+      "id": "sticker-heart",
+      "type": "text",
+      "text": "♡",
+      "anchor": "center-left",
+      "dx": 260,
+      "dy": -140,
+      "size": 30,
+      "color": "#d79aab",
+      "opacity": 0.85
+    },
+    {
+      "id": "sticker-leaf",
+      "type": "text",
+      "text": "❀",
+      "anchor": "bottom-left",
+      "dx": 250,
+      "dy": 150,
+      "size": 26,
+      "color": "#9bb06a",
+      "opacity": 0.8,
+      "rotate": 12
+    },
+    {
+      "id": "portrait",
+      "role": "portrait",
+      "type": "image",
+      "anchor": "bottom-right",
+      "dx": 28,
+      "dy": 12,
+      "width": 300,
+      "height": 460,
+      "shadow": true,
+      "placeholder": "把你的立绘 PNG 放这里\n（建议去背 / 竖图）\nworkbuddy-skin portrait set <图片>"
+    }
+  ]
+}

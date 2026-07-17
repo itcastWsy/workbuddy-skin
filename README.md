@@ -5,7 +5,7 @@
 **本机回环 CDP 注入，不修改官方安装包（`app.asar` / 安装目录），一键还原。**
 
 > 非官方产品；不改动 WorkBuddy 的可执行文件、签名、账号与数据。
-> 跨平台：Windows / macOS / Linux，纯 Node.js，零第三方依赖。
+> 跨平台：Windows / macOS / Linux，纯 Node.js；仅一个纯 JS 依赖 `jimp`（用于自动压缩壁纸/立绘），注入器本身零依赖。
 
 ---
 
@@ -93,6 +93,7 @@ workbuddy-skin bg clear
 ```
 
 - 支持 `jpg / png / webp / gif`；图片会被复制进本地库并在注入时内联为 data URI（绕过 CSP）。
+- **大图自动压缩**：超过安全体积的图片会在入库时自动缩放/重编码（壁纸转 JPEG、立绘转 PNG 并保留透明），避免 data URI 过大导致背景不生效——你直接丢原图即可，无需手动处理。
 - 想连玻璃风格一起换，才用 `theme use <id>`；只换图片，永远用 `bg`。
 
 ---

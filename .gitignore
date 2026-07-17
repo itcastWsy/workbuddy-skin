@@ -1,8 +1,8 @@
 # dependencies
 node_modules/
 
-# local scratch / screenshots produced by `injector.mjs shot`
-_*.png
+# local scratch / screenshots / throwaway probe scripts (_shot.mjs, _diag.mjs, _*.png ...)
+_*
 wb-skin-shot.png
 wb-shot.png
 

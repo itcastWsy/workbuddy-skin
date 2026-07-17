@@ -44,6 +44,18 @@ const MARKER = "on";
 function log(...m) { console.log("[wb-skin]", ...m); }
 function warn(...m) { console.warn("[wb-skin]", ...m); }
 
+// data URI 体积软上限。正常路径下图片已在 CLI 侧（image.mjs）被自动压缩；这里只是
+// 兜底：万一有超大图（例如手改主题里塞了 file://），base64 过长会被浏览器判为无效
+// CSS 值直接丢弃、静默回退默认渐变。超过则明确告警，绝不假装成功。
+const DATAURI_WARN_BYTES = 1.8 * 1024 * 1024;
+
+function warnIfHuge(base64Len, label) {
+  if (base64Len > DATAURI_WARN_BYTES) {
+    warn(`${label} 内联后约 ${(base64Len / 1024 / 1024).toFixed(1)}MB，可能超出 CSS 值上限而不生效。` +
+      `请用 "bg set" / "portrait set" 重新入库（会自动压缩），或换更小的图。`);
+  }
+}
+
 // 把 CSS background 值里的本地 file:// 图片内联为 data URI，绕过渲染进程 CSP 对 file: 的拦截。
 function inlineFileUrls(cssValue) {
   if (!cssValue || typeof cssValue !== "string") return cssValue;
@@ -58,13 +70,63 @@ function inlineFileUrls(cssValue) {
             : ext === "svg" ? "image/svg+xml"
               : "image/jpeg";
       log(`内联壁纸: ${p} (${(buf.length / 1024).toFixed(0)} KB)`);
-      return `url("data:${mime};base64,${buf.toString("base64")}")`;
+      const b64 = buf.toString("base64");
+      warnIfHuge(b64.length, "壁纸");
+      return `url("data:${mime};base64,${b64}")`;
     } catch (e) {
       warn("内联壁纸失败, 保留原 url:", e.message);
       return m;
     }
   });
 }
+
+// 把一个本地图片路径（file:// 或普通路径）读成 data URI，供装饰层 <img> 用（绕过 CSP）。
+function fileToDataUri(src) {
+  const p0 = String(src).replace(/^file:\/\/\/?/i, "");
+  const p = decodeURI(p0);
+  const abs = resolve(p);
+  const buf = readFileSync(abs);
+  const ext = (abs.split(".").pop() || "").toLowerCase();
+  const mime = ext === "png" ? "image/png"
+    : ext === "webp" ? "image/webp"
+      : ext === "gif" ? "image/gif"
+        : ext === "svg" ? "image/svg+xml"
+          : "image/jpeg";
+  return { uri: `data:${mime};base64,${buf.toString("base64")}`, kb: buf.length / 1024 };
+}
+
+// 校验装饰图内联后是否过大（供 prepDeco 调用告警）。
+function decoWarnIfHuge(uri, label) {
+  const i = uri.indexOf(",");
+  warnIfHuge(i >= 0 ? uri.length - i - 1 : uri.length, label);
+}
+
+// 预处理一个装饰项：image 类型内联 src；其余原样返回。失败则丢弃 src（渲染层会退回占位框）。
+function prepDeco(d) {
+  if (!d || typeof d !== "object") return null;
+  if (d.type === "image" && d.src && d.src !== true) {
+    try {
+      const { uri, kb } = fileToDataUri(d.src);
+      log(`内联装饰图: ${d.id || d.role || "img"} (${kb.toFixed(0)} KB)`);
+      decoWarnIfHuge(uri, `装饰图 ${d.id || d.role || "img"}`);
+      return { ...d, src: uri };
+    } catch (e) {
+      warn(`内联装饰图失败(${d.id || d.role || "img"})，改用占位框:`, e.message);
+      const { src, ...rest } = d;
+      return { ...rest, src: null };
+    }
+  }
+  return { ...d };
+}
+
+// 装饰层基础样式：固定浮层、不挡点击；仅首页显示（进入具体任务对话即隐藏，与 scrim 规则一致）。
+const DECO_CSS = `
+#wb-skin-deco{position:fixed;inset:0;z-index:30;pointer-events:none;overflow:hidden;}
+#wb-skin-deco .wb-deco-item{position:absolute;pointer-events:none;user-select:none;}
+#wb-skin-deco .wb-deco-item img{display:block;max-width:none;}
+#wb-skin-deco .wb-deco-ph{border:2px dashed rgba(120,120,120,0.55);border-radius:16px;display:flex;align-items:center;justify-content:center;text-align:center;color:rgba(90,90,90,0.75);font-size:13px;padding:10px;box-sizing:border-box;background:rgba(255,255,255,0.06);}
+body[data-wb-skin="on"]:has(.main-content--chat .chat-container:not(.chat-container--welcome)) #wb-skin-deco .deco--welcome{display:none;}`.trim();
+
 
 // ---- 主题 -> 载荷 ----------------------------------------------------------
 function buildConfig() {
@@ -81,6 +143,11 @@ function buildConfig() {
   // 内联本地壁纸为 data URI（若 background 用的是 file:// 图片）
   const bgDark = inlineFileUrls(bg.dark) || "linear-gradient(140deg,#0b1020,#141033)";
   const bgLight = inlineFileUrls(bg.light) || "linear-gradient(140deg,#eef1ff,#eafaf6)";
+
+  // 装饰层（立绘 / 标题横幅 / 印章 / 贴纸），image 类型的 src 在此内联为 data URI。
+  const decorations = Array.isArray(theme.decorations)
+    ? theme.decorations.map(prepDeco).filter(Boolean)
+    : [];
 
   // 由主题生成的 CSS 变量层, 覆盖 skin.css 里的回退值。明/暗各一套。
   const varsCss = `
@@ -99,7 +166,7 @@ body[data-wb-skin="${MARKER}"][data-vscode-theme-kind="vscode-light"]{
   --wb-skin-scrim:rgba(255,255,255,${num(g.chatScrimLight, 0.24)});
 }`.trim();
 
-  return { varsCss, skinCss, marker: MARKER, themeName: theme.name || theme.id || "skin" };
+  return { varsCss, skinCss, decoCss: DECO_CSS, decorations, marker: MARKER, themeName: theme.name || theme.id || "skin" };
 }
 
 function buildPayload(config) {
@@ -109,7 +176,7 @@ function buildPayload(config) {
 
 const REMOVE_PAYLOAD = `(function(){
   if (typeof window.__wbSkinRemove === "function") { try { return window.__wbSkinRemove(); } catch(e){} }
-  ["wb-skin-vars","wb-skin-style","wb-skin-bg"].forEach(function(id){var el=document.getElementById(id);if(el&&el.parentNode)el.parentNode.removeChild(el);});
+  ["wb-skin-vars","wb-skin-style","wb-skin-deco-style","wb-skin-bg","wb-skin-deco"].forEach(function(id){var el=document.getElementById(id);if(el&&el.parentNode)el.parentNode.removeChild(el);});
   if(document.body)document.body.removeAttribute("data-wb-skin");
   try{if(window.__wbSkinObserver)window.__wbSkinObserver.disconnect();}catch(e){}
   window.__wbSkinObserver=null;window.__wbSkinInstalled=false;

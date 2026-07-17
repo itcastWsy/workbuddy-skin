@@ -88,6 +88,9 @@ workbuddy-skin apply --port 9345 --exe "/path/to/WorkBuddy"
 workbuddy-skin bg set "D:\Pictures\beach.jpg"     # Windows
 workbuddy-skin bg set ~/Pictures/beach.jpg        # macOS / Linux
 
+# 想先试试效果？仓库自带一张原创抽象壁纸
+workbuddy-skin bg set assets/samples/aurora-sample.jpg
+
 # 回到当前主题自带的渐变背景
 workbuddy-skin bg clear
 ```
@@ -131,6 +134,7 @@ workbuddy-skin/
 │  ├─ theme.json          # 默认主题契约
 │  ├─ themes/             # 预设主题：aurora-glass / midnight / sakura / mono
 │  ├─ skin.css            # 视觉层（针对 WorkBuddy 选择器的玻璃化规则）
+│  ├─ samples/            # 原创示例壁纸（aurora-sample.jpg，可直接 bg set 试用）
 │  └─ renderer-inject.js  # 渲染进程内的幂等 DOM 集成 + 清理
 ├─ package.json
 ├─ LICENSE

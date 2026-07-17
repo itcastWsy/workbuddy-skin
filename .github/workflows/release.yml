@@ -24,19 +24,19 @@ jobs:
           - os: windows-latest
             label: windows-x64
             out: dist/workbuddy-skin.exe
-            asset: workbuddy-skin-windows-x64.exe
+            ext: ".exe"
           - os: ubuntu-latest
             label: linux-x64
             out: dist/workbuddy-skin
-            asset: workbuddy-skin-linux-x64
+            ext: ""
           - os: macos-latest
             label: macos-arm64
             out: dist/workbuddy-skin
-            asset: workbuddy-skin-macos-arm64
+            ext: ""
           - os: macos-13
             label: macos-x64
             out: dist/workbuddy-skin
-            asset: workbuddy-skin-macos-x64
+            ext: ""
 
     steps:
       - name: Checkout
@@ -56,23 +56,35 @@ jobs:
       - name: Build single-file executable
         run: npm run build
 
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "v=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "v=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Stage artifact
         shell: bash
         run: |
           mkdir -p out
-          cp "${{ matrix.out }}" "out/${{ matrix.asset }}"
+          ASSET="workbuddy-skin-${{ steps.ver.outputs.v }}-${{ matrix.label }}${{ matrix.ext }}"
+          cp "${{ matrix.out }}" "out/${ASSET}"
+          echo "ASSET=${ASSET}" >> "$GITHUB_ENV"
           ls -lh out
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.asset }}
-          path: out/${{ matrix.asset }}
+          name: ${{ env.ASSET }}
+          path: out/${{ env.ASSET }}
 
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: out/${{ matrix.asset }}
+          files: out/${{ env.ASSET }}
           fail_on_unmatched_files: true
           generate_release_notes: true

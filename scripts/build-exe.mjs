@@ -29,6 +29,9 @@ const ROOT = resolve(__dirname, "..");
 const DIST = join(ROOT, "dist");
 const ASSETS = join(ROOT, "assets");
 
+const PKG = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+const VERSION = PKG.version || "0.0.0";
+
 const IS_WIN = platform() === "win32";
 const IS_MAC = platform() === "darwin";
 const EXE_NAME = IS_WIN ? "workbuddy-skin.exe" : "workbuddy-skin";
@@ -38,7 +41,7 @@ const log = (m) => console.log(`[build] ${m}`);
 const run = (args, opts = {}) => execFileSync(process.execPath, args, { stdio: "inherit", ...opts });
 
 async function main() {
-  log(`node ${process.version} on ${platform()} -> ${EXE_NAME}`);
+  log(`node ${process.version} on ${platform()} -> ${EXE_NAME} (v${VERSION})`);
 
   // 1. clean dist
   rmSync(DIST, { recursive: true, force: true });
@@ -75,7 +78,10 @@ async function main() {
     target: "node20",
     outfile: bundlePathJs,
     logLevel: "info",
-    define: { "import.meta.url": "__wb_import_meta_url" },
+    define: {
+      "import.meta.url": "__wb_import_meta_url",
+      "__WB_VERSION__": JSON.stringify(VERSION),
+    },
     banner: {
       js: [
         "// WorkBuddy Skin — bundled single-file entry (do not edit)",
@@ -129,7 +135,18 @@ async function main() {
     catch { /* best effort */ }
   }
 
+  // 7. also emit a versioned copy (name carries version + os + arch) so local
+  // builds are self-documenting. The canonical unversioned name above is kept
+  // for CI, which renames it per-runner.
+  const osLabel = IS_WIN ? "windows" : IS_MAC ? "macos" : "linux";
+  const ext = IS_WIN ? ".exe" : "";
+  const versionedName = `workbuddy-skin-v${VERSION}-${osLabel}-${process.arch}${ext}`;
+  const versionedPath = join(DIST, versionedName);
+  copyFileSync(exePath, versionedPath);
+  if (!IS_WIN) chmodSync(versionedPath, 0o755);
+
   log(`DONE -> ${exePath}`);
+  log(`DONE -> ${versionedPath}`);
 }
 
 main().catch((e) => { console.error("[build] FAILED:", e); process.exit(1); });

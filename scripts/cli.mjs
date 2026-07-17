@@ -44,7 +44,7 @@ function parseArgs(argv) {
 // start at index 2 exactly like `node bin/...`. One slice covers both.
 const CLI_ARGV = process.argv.slice(2);
 const args = parseArgs(CLI_ARGV);
-const CMD = (args._[0] || "help").toLowerCase();
+const CMD = (args._[0] || (args.version ? "version" : "help")).toLowerCase();
 const SUB = args._[1];
 
 // ---- theme resolution ------------------------------------------------------
@@ -442,8 +442,17 @@ async function cmdAutostart() {
   if (errors) P.warn(`${errors} shortcut(s) could not be updated (all-users scope likely needs admin). Re-run in an elevated terminal to include them.`);
 }
 
+// Version: injected at build time via esbuild `define` (__WB_VERSION__ becomes a
+// string literal in the packaged exe); in dev (plain node) it's undeclared, so
+// fall back to reading package.json from the project root.
+function appVersion() {
+  if (typeof __WB_VERSION__ !== "undefined") return __WB_VERSION__;
+  try { return JSON.parse(readFileSync(join(P.ROOT, "package.json"), "utf8")).version || "unknown"; }
+  catch { return "unknown"; }
+}
+
 function cmdHelp() {
-  console.log(`WorkBuddy Skin — background + glass skin via loopback CDP (no official files changed)
+  console.log(`WorkBuddy Skin v${appVersion()} — background + glass skin via loopback CDP (no official files changed)
 
 Usage: workbuddy-skin <command> [options]
 
@@ -513,7 +522,7 @@ async function interactiveMenu() {
   try {
     for (; ;) {
       console.log("\n============================================");
-      console.log("   WorkBuddy 换肤工具");
+      console.log(`   WorkBuddy 换肤工具  v${appVersion()}`);
       console.log("============================================");
       console.log("  1) 应用皮肤（自动启动 WorkBuddy 并换肤）");
       console.log("  2) 选择主题");
@@ -579,6 +588,7 @@ async function interactiveMenu() {
       case "autostart": await cmdAutostart(); break;
       case "status": await cmdStatus(); break;
       case "help": case "--help": case "-h": cmdHelp(); break;
+      case "version": case "--version": case "-v": console.log(appVersion()); break;
       default: P.err(`Unknown command: ${CMD}`); cmdHelp(); process.exit(2);
     }
   } catch (e) {

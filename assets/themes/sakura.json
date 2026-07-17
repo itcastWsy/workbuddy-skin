@@ -1,0 +1,23 @@
+{
+  "$schema": "../theme.schema.json",
+  "id": "sakura",
+  "name": "樱 / Sakura",
+  "version": 1,
+  "author": "workbuddy-skin",
+  "appearance": "auto",
+  "comment": "Soft pink + cream. Warm and gentle; shines in light mode.",
+  "background": {
+    "dark": "radial-gradient(120% 120% at 15% 6%, rgba(244,114,182,0.34) 0%, rgba(244,114,182,0) 46%), radial-gradient(120% 120% at 88% 96%, rgba(251,191,148,0.30) 0%, rgba(251,191,148,0) 50%), linear-gradient(150deg, #16101a 0%, #1c1220 50%, #241426 100%)",
+    "light": "radial-gradient(120% 120% at 12% 4%, rgba(249,168,212,0.46) 0%, rgba(249,168,212,0) 46%), radial-gradient(120% 120% at 90% 98%, rgba(253,215,170,0.44) 0%, rgba(253,215,170,0) 52%), linear-gradient(150deg, #fff5f8 0%, #fff1ea 55%, #fdeef4 100%)"
+  },
+  "glass": {
+    "blur": 24,
+    "saturate": 1.35,
+    "panelOpacityDark": 0.44,
+    "panelOpacityLight": 0.5,
+    "cardOpacityDark": 0.32,
+    "cardOpacityLight": 0.6,
+    "chatScrimDark": 0.28,
+    "chatScrimLight": 0.22
+  }
+}

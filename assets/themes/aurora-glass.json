@@ -1,0 +1,23 @@
+{
+  "$schema": "../theme.schema.json",
+  "id": "aurora-glass",
+  "name": "极光玻璃 / Aurora Glass",
+  "version": 1,
+  "author": "workbuddy-skin",
+  "appearance": "auto",
+  "comment": "Default gradient theme. Run `bg set <image>` to use a photo wallpaper instead.",
+  "background": {
+    "dark": "radial-gradient(120% 120% at 12% 8%, rgba(99,102,241,0.55) 0%, rgba(99,102,241,0) 42%), radial-gradient(110% 110% at 92% 18%, rgba(236,72,153,0.42) 0%, rgba(236,72,153,0) 46%), radial-gradient(120% 120% at 78% 100%, rgba(20,184,166,0.42) 0%, rgba(20,184,166,0) 50%), linear-gradient(140deg, #0b1020 0%, #0d1226 45%, #141033 100%)",
+    "light": "radial-gradient(120% 120% at 10% 6%, rgba(129,140,248,0.40) 0%, rgba(129,140,248,0) 44%), radial-gradient(110% 110% at 94% 14%, rgba(244,114,182,0.36) 0%, rgba(244,114,182,0) 46%), radial-gradient(120% 120% at 82% 100%, rgba(45,212,191,0.34) 0%, rgba(45,212,191,0) 50%), linear-gradient(140deg, #eef1ff 0%, #f5f0ff 46%, #eafaf6 100%)"
+  },
+  "glass": {
+    "blur": 22,
+    "saturate": 1.25,
+    "panelOpacityDark": 0.46,
+    "panelOpacityLight": 0.52,
+    "cardOpacityDark": 0.34,
+    "cardOpacityLight": 0.62,
+    "chatScrimDark": 0.30,
+    "chatScrimLight": 0.24
+  }
+}

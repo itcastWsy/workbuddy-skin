@@ -1,0 +1,168 @@
+/* ============================================================================
+ * WorkBuddy Skin — 视觉层 (glass over wallpaper)
+ * 只在 body[data-wb-skin="on"] 时生效；还原时移除该标记即整层失效。
+ * 所有变量由 renderer-inject.js 根据 theme.json + 当前明/暗模式写入 :root。
+ * 装饰层一律 pointer-events:none，真实控件保持在上层可点击。
+ * ==========================================================================*/
+
+:root {
+  --wb-skin-bg-dark: linear-gradient(140deg, #0b1020, #141033);
+  --wb-skin-bg-light: linear-gradient(140deg, #eef1ff, #eafaf6);
+  --wb-skin-blur: 22px;
+  --wb-skin-saturate: 1.25;
+
+  /* 面板玻璃底色（默认暗色，light 分支覆盖） */
+  --wb-skin-panel: rgba(17, 21, 40, 0.46);
+  --wb-skin-card: rgba(20, 24, 46, 0.34);
+  --wb-skin-scrim: rgba(8, 10, 22, 0.30);
+  --wb-skin-border: rgba(255, 255, 255, 0.10);
+  --wb-skin-border-strong: rgba(255, 255, 255, 0.16);
+}
+
+/* ---- 明色模式变量覆盖 ---------------------------------------------------- */
+body[data-application-name="workbuddy"][data-wb-skin="on"].vscode-light,
+body[data-application-name="workbuddy"][data-wb-skin="on"][data-vscode-theme-kind="vscode-light"] {
+  --wb-skin-panel: rgba(255, 255, 255, 0.52);
+  --wb-skin-card: rgba(255, 255, 255, 0.62);
+  --wb-skin-scrim: rgba(255, 255, 255, 0.24);
+  --wb-skin-border: rgba(15, 23, 42, 0.08);
+  --wb-skin-border-strong: rgba(15, 23, 42, 0.14);
+}
+
+/* ===== 1. 背景层 ========================================================== */
+/* #wb-skin-bg 由 renderer-inject 注入为 body 的首个子节点，固定铺满整窗。
+ * 其渐变最后一层为不透明底色，因此即使 body 透明也不会露出窗口下方。*/
+body[data-application-name="workbuddy"][data-wb-skin="on"] {
+  background: transparent !important;
+}
+
+#wb-skin-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: var(--wb-skin-bg-dark);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  /* 任务页时整体压暗一点，减少干扰（见下方 --chat 规则联动） */
+  transition: filter 240ms ease;
+}
+
+body[data-wb-skin="on"].vscode-light #wb-skin-bg,
+body[data-wb-skin="on"][data-vscode-theme-kind="vscode-light"] #wb-skin-bg {
+  background-image: var(--wb-skin-bg-light);
+}
+
+/* #root 抬到背景之上 */
+body[data-application-name="workbuddy"][data-wb-skin="on"] #root {
+  position: relative;
+  z-index: 1;
+}
+
+/* ===== 2. 把不透明容器改为透明，让背景透出 ================================= */
+body[data-wb-skin="on"] .teams-container,
+body[data-wb-skin="on"] .teams-content-wrapper,
+body[data-wb-skin="on"] .teams-main-content,
+body[data-wb-skin="on"] .main-content,
+body[data-wb-skin="on"] .conversation-sidebar,
+body[data-wb-skin="on"] .chat-container,
+body[data-wb-skin="on"] .expert-center-page,
+body[data-wb-skin="on"] .plugins-panel,
+body[data-wb-skin="on"] .welcome-only-wrapper,
+/* WorkBuddy 采用网格分栏布局，pane 容器有实底色（如 rgb(20,20,20)），会盖住背景层。
+ * 用属性子串匹配 CSS-module 哈希类名，兼容版本升级导致的哈希变化。 */
+body[data-wb-skin="on"] [class*="_grid_"],
+body[data-wb-skin="on"] [class*="_gridView_"],
+body[data-wb-skin="on"] [class*="_gridViewItem_"],
+body[data-wb-skin="on"] [class*="_cbChat_"] {
+  background: transparent !important;
+}
+
+/* ===== 3. 侧边栏玻璃面板 ================================================== */
+body[data-wb-skin="on"] .conversation-list,
+body[data-wb-skin="on"] .sidebar-next {
+  background: var(--wb-skin-panel) !important;
+  -webkit-backdrop-filter: blur(var(--wb-skin-blur)) saturate(var(--wb-skin-saturate));
+  backdrop-filter: blur(var(--wb-skin-blur)) saturate(var(--wb-skin-saturate));
+  border-right: 1px solid var(--wb-skin-border);
+}
+
+body[data-wb-skin="on"] .conversation-list-topbar {
+  background: transparent !important;
+}
+
+/* 侧栏条目悬停/选中态更贴玻璃质感 */
+body[data-wb-skin="on"] .conversation-item:hover,
+body[data-wb-skin="on"] .conversation-agent-card:hover {
+  background: var(--wb-skin-border) !important;
+}
+
+/* ===== 4. 顶栏 / 菜单栏 / 窗口控件 ======================================== */
+body[data-wb-skin="on"] #workbuddy-menubar-container,
+body[data-wb-skin="on"] .workbuddy-window-controls,
+body[data-wb-skin="on"] .workbuddy-topbar {
+  background: var(--wb-skin-panel) !important;
+  -webkit-backdrop-filter: blur(var(--wb-skin-blur)) saturate(var(--wb-skin-saturate));
+  backdrop-filter: blur(var(--wb-skin-blur)) saturate(var(--wb-skin-saturate));
+}
+
+body[data-wb-skin="on"] #workbuddy-menubar-container {
+  border-bottom: 1px solid var(--wb-skin-border);
+}
+
+/* ===== 5. 任务/对话页：加一层可读性 scrim（首页不加，保持氛围感） ========= */
+/* 首页 = .main-content--welcome / .chat-container--welcome，保持通透。 */
+body[data-wb-skin="on"] .main-content--chat .chat-container:not(.chat-container--welcome)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--wb-skin-scrim);
+  -webkit-backdrop-filter: blur(calc(var(--wb-skin-blur) * 0.6));
+  backdrop-filter: blur(calc(var(--wb-skin-blur) * 0.6));
+}
+
+/* 任务页时把背景层轻微压暗，减少与正文争夺注意力 */
+body[data-wb-skin="on"]:has(.main-content--chat .chat-container:not(.chat-container--welcome)) #wb-skin-bg {
+  filter: brightness(0.82) saturate(1.05);
+}
+
+/* ===== 6. 卡片 / 气泡 / 建议卡玻璃化 ====================================== */
+body[data-wb-skin="on"] .conversation-agent-card,
+body[data-wb-skin="on"] [class*="_toolCallContent_"],
+body[data-wb-skin="on"] [class*="_assistantMessageContent_"],
+body[data-wb-skin="on"] [class*="_userMessageText_"] {
+  background: var(--wb-skin-card) !important;
+  -webkit-backdrop-filter: blur(calc(var(--wb-skin-blur) * 0.7)) saturate(var(--wb-skin-saturate));
+  backdrop-filter: blur(calc(var(--wb-skin-blur) * 0.7)) saturate(var(--wb-skin-saturate));
+  border: 1px solid var(--wb-skin-border);
+  border-radius: 14px;
+}
+
+/* ===== 7. 输入框 / composer 玻璃化 ======================================== */
+body[data-wb-skin="on"] textarea,
+body[data-wb-skin="on"] [class*="composer"],
+body[data-wb-skin="on"] [class*="Composer"],
+body[data-wb-skin="on"] [class*="inputArea"],
+body[data-wb-skin="on"] [class*="InputArea"] {
+  background: var(--wb-skin-card) !important;
+  -webkit-backdrop-filter: blur(calc(var(--wb-skin-blur) * 0.7)) saturate(var(--wb-skin-saturate));
+  backdrop-filter: blur(calc(var(--wb-skin-blur) * 0.7)) saturate(var(--wb-skin-saturate));
+  border: 1px solid var(--wb-skin-border-strong) !important;
+}
+
+/* ===== 8. 滚动条更轻 ====================================================== */
+body[data-wb-skin="on"] ::-webkit-scrollbar-thumb {
+  background-color: var(--wb-skin-border-strong) !important;
+}
+
+/* ===== 9. 弹层/浮层不玻璃化（保证可读、避免与背景糊在一起） =============== */
+/* 下拉、picker overlay、模态框保持其原有实底，交互清晰。若需玻璃化可放开。 */
+body[data-wb-skin="on"] .ec-picker-overlay,
+body[data-wb-skin="on"] .skill-picker-overlay,
+body[data-wb-skin="on"] [role="dialog"],
+body[data-wb-skin="on"] [role="menu"] {
+  /* 留白：不覆盖官方浮层背景，保持可读性 */
+}

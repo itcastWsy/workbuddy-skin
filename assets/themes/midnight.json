@@ -1,0 +1,23 @@
+{
+  "$schema": "../theme.schema.json",
+  "id": "midnight",
+  "name": "午夜蓝 / Midnight",
+  "version": 1,
+  "author": "workbuddy-skin",
+  "appearance": "auto",
+  "comment": "Deep, calm blues. Minimal glow, higher panel opacity for focus.",
+  "background": {
+    "dark": "radial-gradient(130% 120% at 20% 0%, rgba(56,89,168,0.42) 0%, rgba(56,89,168,0) 48%), radial-gradient(120% 120% at 90% 100%, rgba(30,58,110,0.40) 0%, rgba(30,58,110,0) 52%), linear-gradient(160deg, #05070f 0%, #0a1020 55%, #0b1428 100%)",
+    "light": "radial-gradient(130% 120% at 18% 0%, rgba(148,170,220,0.34) 0%, rgba(148,170,220,0) 48%), radial-gradient(120% 120% at 92% 100%, rgba(120,150,210,0.30) 0%, rgba(120,150,210,0) 52%), linear-gradient(160deg, #eef2fb 0%, #e6ecf8 100%)"
+  },
+  "glass": {
+    "blur": 20,
+    "saturate": 1.1,
+    "panelOpacityDark": 0.52,
+    "panelOpacityLight": 0.58,
+    "cardOpacityDark": 0.40,
+    "cardOpacityLight": 0.66,
+    "chatScrimDark": 0.34,
+    "chatScrimLight": 0.26
+  }
+}

@@ -1,0 +1,18 @@
+# dependencies
+node_modules/
+
+# local scratch / screenshots produced by `injector.mjs shot`
+_*.png
+wb-skin-shot.png
+wb-shot.png
+
+# logs
+*.log
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# editor
+.vscode/
+.idea/

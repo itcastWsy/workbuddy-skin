@@ -1,0 +1,23 @@
+{
+  "$schema": "../theme.schema.json",
+  "id": "mono",
+  "name": "石墨 / Mono",
+  "version": 1,
+  "author": "workbuddy-skin",
+  "appearance": "auto",
+  "comment": "Neutral grayscale glass. Distraction-free; pairs well with any wallpaper.",
+  "background": {
+    "dark": "radial-gradient(130% 130% at 50% 0%, rgba(120,120,130,0.20) 0%, rgba(120,120,130,0) 55%), linear-gradient(180deg, #0c0d10 0%, #121317 60%, #16181d 100%)",
+    "light": "radial-gradient(130% 130% at 50% 0%, rgba(120,120,130,0.16) 0%, rgba(120,120,130,0) 55%), linear-gradient(180deg, #f4f5f7 0%, #eef0f2 100%)"
+  },
+  "glass": {
+    "blur": 18,
+    "saturate": 1.0,
+    "panelOpacityDark": 0.5,
+    "panelOpacityLight": 0.56,
+    "cardOpacityDark": 0.38,
+    "cardOpacityLight": 0.64,
+    "chatScrimDark": 0.32,
+    "chatScrimLight": 0.24
+  }
+}

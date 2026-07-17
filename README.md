@@ -296,6 +296,17 @@ git push origin v1.2.0
 - 不修改官方安装目录、代码签名、`app.asar`。
 - 不改动任何 API / 账号 / 数据配置。
 
+## 联系与反馈
+
+使用中遇到问题、想反馈 bug 或提建议，欢迎联系作者：
+
+- 邮箱：yeah126139163@163.com
+- 微信：w846903522
+
+也可以直接在仓库提 [Issue](https://github.com/itcastWsy/workbuddy-skin/issues) 或 PR。
+
+---
+
 ## License
 
 MIT

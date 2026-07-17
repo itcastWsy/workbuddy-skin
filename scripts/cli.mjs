@@ -484,6 +484,29 @@ Examples:
 // menu instead of dumping --help. Non-technical users never touch a terminal.
 function ask(rl, q) { return new Promise((res) => rl.question(q, (a) => res(a.trim()))); }
 
+// Make sure we know where WorkBuddy is before an apply. Uses the saved/auto-found
+// path; if discovery fails, ask the user to point at it and remember the choice.
+async function ensureExeInteractive(rl) {
+  const state = P.readState();
+  if (state && state.exe && existsSync(state.exe)) return true;
+  try { const exe = P.findExecutable(); P.saveState({ exe }); return true; }
+  catch { return await setExeInteractive(rl); }
+}
+
+// Prompt for the WorkBuddy executable and persist it to state.
+async function setExeInteractive(rl) {
+  console.log("\n[wb-skin] 需要 WorkBuddy 的程序位置。");
+  console.log("把 WorkBuddy 的程序文件（Windows 上是 WorkBuddy.exe）拖进本窗口，或粘贴完整路径后回车（直接回车取消）：");
+  for (let i = 0; i < 3; i++) {
+    const p = (await ask(rl, "WorkBuddy 路径：")).replace(/^["']|["']$/g, "");
+    if (!p) { console.log("已取消。"); return false; }
+    if (existsSync(p)) { P.saveState({ exe: p }); P.ok(`已记住 WorkBuddy 位置：${p}`); return true; }
+    console.log("路径无效或文件不存在，请重试。");
+  }
+  P.err("多次输入无效，已取消。");
+  return false;
+}
+
 async function interactiveMenu() {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const pause = async () => { await ask(rl, "\n按回车键返回菜单..."); };
@@ -498,28 +521,30 @@ async function interactiveMenu() {
       console.log("  4) 清除壁纸（恢复主题渐变）");
       console.log("  5) 还原为官方外观");
       if (P.IS_WIN) console.log("  6) 开机自启换肤（给快捷方式加调试端口）");
+      console.log("  7) 指定 WorkBuddy 位置（自动找不到时手动指定）");
       console.log("  0) 退出");
       const c = await ask(rl, "\n请输入序号后回车：");
       try {
-        if (c === "1") { await cmdApply(); await pause(); }
+        if (c === "1") { if (await ensureExeInteractive(rl)) await cmdApply(); await pause(); }
         else if (c === "2") {
           console.log("");
           const list = listThemes();
           list.forEach(([id, name], i) => console.log(`  ${i + 1}) ${id.padEnd(16)} ${name}`));
           const pick = await ask(rl, "\n选择主题序号（回车跳过）：");
           const idx = Number(pick) - 1;
-          if (list[idx]) { args.theme = list[idx][0]; await cmdApply(); }
+          if (list[idx]) { args.theme = list[idx][0]; if (await ensureExeInteractive(rl)) await cmdApply(); }
           await pause();
         }
         else if (c === "3") {
           const p = await ask(rl, "\n拖入或粘贴图片路径后回车：");
           const clean = p.replace(/^["']|["']$/g, "");
-          if (clean) { args.bg = clean; await cmdApply(); }
+          if (clean) { args.bg = clean; if (await ensureExeInteractive(rl)) await cmdApply(); }
           await pause();
         }
-        else if (c === "4") { P.saveState({ background: null, accent: null }); await cmdApply(); await pause(); }
+        else if (c === "4") { if (await ensureExeInteractive(rl)) { P.saveState({ background: null, accent: null }); await cmdApply(); } await pause(); }
         else if (c === "5") { await cmdRestore(); await pause(); }
         else if (c === "6" && P.IS_WIN) { await cmdAutostart(); await pause(); }
+        else if (c === "7") { await setExeInteractive(rl); await pause(); }
         else if (c === "0" || c.toLowerCase() === "q") { break; }
         else { console.log("无效的选项。"); }
       } catch (e) { P.err(e.message); await pause(); }

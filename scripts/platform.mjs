@@ -170,22 +170,45 @@ export function findExecutable(override) {
   }
   for (const c of candidates) if (c && existsSync(c)) return c;
 
-  // Fallbacks: `which`/`where`, then a shallow scan of common install roots.
+  // Fallbacks: PATH, then a running instance's real path, then a broad scan of
+  // every fixed drive's install roots (handles non-C: installs and odd names).
   const viaWhich = whichWorkBuddy();
   if (viaWhich) return viaWhich;
 
-  const scanRoots = IS_WIN
-    ? [join(process.env.LOCALAPPDATA || "", "Programs"), process.env["ProgramFiles"], process.env["ProgramFiles(x86)"]]
-    : IS_MAC
-      ? ["/Applications", join(home, "Applications")]
-      : ["/opt", join(home, ".local"), join(home, "Applications"), join(home, "Downloads")];
-  const exeName = IS_WIN ? "workbuddy.exe" : "workbuddy";
+  const running = findRunningWorkBuddy();
+  if (running) return running;
+
+  let scanRoots;
+  if (IS_WIN) {
+    scanRoots = [];
+    const la = process.env.LOCALAPPDATA || "";
+    if (la) scanRoots.push(join(la, "Programs"));
+    for (let code = 67; code <= 90; code++) { // scan C: .. Z:
+      const drive = `${String.fromCharCode(code)}:\\`;
+      if (!existsSync(drive)) continue;
+      scanRoots.push(join(drive, "Program Files"), join(drive, "Program Files (x86)"), join(drive, "WorkBuddy"));
+    }
+    scanRoots.push(join(home, "Desktop"), join(home, "Downloads"));
+  } else if (IS_MAC) {
+    scanRoots = ["/Applications", join(home, "Applications"), join(home, "Downloads"), join(home, "Desktop")];
+  } else {
+    scanRoots = ["/opt", join(home, ".local"), join(home, "Applications"), join(home, "Downloads"), join(home, "Desktop")];
+  }
+  // Match any executable whose name contains "workbuddy" (but not our own
+  // "workbuddy-skin" tool), so a differently-cased/named install still resolves.
+  const matches = (nameLower) =>
+    nameLower.includes("workbuddy") && !nameLower.includes("skin") &&
+    (IS_WIN ? nameLower.endsWith(".exe") : !nameLower.includes("."));
   for (const r of scanRoots) {
     if (!r || !existsSync(r)) continue;
-    const hit = shallowFind(r, exeName, 3);
+    const hit = scanForWorkBuddy(r, matches, 3);
     if (hit) return hit;
   }
-  throw new Error("Could not locate WorkBuddy. Pass --exe <full path> explicitly.");
+  throw new Error(
+    "未找到 WorkBuddy。请确认 WorkBuddy 已安装并（推荐）先把它打开；" +
+    "命令行可用 apply --exe \"完整路径\" 指定，双击版请在菜单选「指定 WorkBuddy 位置」。" +
+    " (Could not locate WorkBuddy — pass --exe <full path>)"
+  );
 }
 
 function whichWorkBuddy() {
@@ -197,7 +220,34 @@ function whichWorkBuddy() {
   return null;
 }
 
-function shallowFind(root, targetLower, depth) {
+// Best-effort: if WorkBuddy is already running, read its real executable path.
+// This is authoritative and works no matter which drive/folder it lives in.
+function findRunningWorkBuddy() {
+  try {
+    if (IS_WIN) {
+      const out = spawnSync("powershell", ["-NoProfile", "-Command",
+        "Get-CimInstance Win32_Process | Select-Object Name,ExecutablePath | ConvertTo-Csv -NoTypeInformation"
+      ], { encoding: "utf8", windowsHide: true });
+      for (const line of (out.stdout || "").split(/\r?\n/)) {
+        const m = line.match(/^"([^"]*)","([^"]*)"$/);
+        if (!m) continue;
+        const name = m[1].toLowerCase(), path = m[2];
+        if (name.includes("workbuddy") && !name.includes("skin") && path && existsSync(path)) return path;
+      }
+    } else {
+      const out = spawnSync("ps", ["-Ao", "comm="], { encoding: "utf8" });
+      for (const line of (out.stdout || "").split(/\r?\n/)) {
+        const p = line.trim();
+        if (!p) continue;
+        const base = (p.split("/").pop() || "").toLowerCase();
+        if (base.includes("workbuddy") && !base.includes("skin") && existsSync(p)) return p;
+      }
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+function scanForWorkBuddy(root, matches, depth) {
   const stack = [{ dir: root, d: 0 }];
   while (stack.length) {
     const { dir, d } = stack.pop();
@@ -208,7 +258,7 @@ function shallowFind(root, targetLower, depth) {
       let st;
       try { st = statSync(full); } catch { continue; }
       if (st.isFile()) {
-        if (name.toLowerCase() === targetLower) return full;
+        if (matches(name.toLowerCase())) return full;
         // macOS: WorkBuddy.app bundle → binary lives under Contents/MacOS
       } else if (st.isDirectory() && d < depth) {
         stack.push({ dir: full, d: d + 1 });

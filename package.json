@@ -1,6 +1,6 @@
 {
   "name": "workbuddy-skin",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Give WorkBuddy a background wallpaper + frosted-glass UI via loopback CDP injection. Cross-platform (Windows/macOS/Linux), reversible, no official files modified.",
   "type": "module",
   "bin": {

@@ -13,9 +13,23 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
+import { createRequire } from "node:module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ASSETS_DEFAULT = resolve(__dirname, "..", "assets");
+const _require = createRequire(import.meta.url);
+
+// 读取内置资源（skin.css / renderer-inject.js）。打包成 SEA 单文件 exe 后从内嵌
+// asset 读取；开发/未打包时回退到磁盘的 assets 目录。两种形态都可用。
+function loadAsset(name) {
+  try {
+    const sea = _require("node:sea");
+    if (sea && typeof sea.isSea === "function" && sea.isSea()) {
+      return sea.getAsset(name, "utf8");
+    }
+  } catch { /* 非 SEA 运行时，走磁盘 */ }
+  return readFileSync(join(ASSETS, name), "utf8");
+}
 
 // ---- 参数解析 --------------------------------------------------------------
 function parseArgs(argv) {
@@ -32,14 +46,25 @@ function parseArgs(argv) {
   return a;
 }
 
-const args = parseArgs(process.argv.slice(2));
-const COMMAND = args._[0] || "apply";
-const PORT = Number(args.port || 9345);
+let args = { _: [] };
+let COMMAND = "apply";
+let PORT = 9345;
+let ASSETS = ASSETS_DEFAULT;
+let THEME_PATH = join(ASSETS, "theme.json");
+let TIMEOUT = 15000;
 const HOST = "127.0.0.1";
-const ASSETS = args.assets ? resolve(String(args.assets)) : ASSETS_DEFAULT;
-const THEME_PATH = args.theme ? resolve(String(args.theme)) : join(ASSETS, "theme.json");
-const TIMEOUT = Number(args.timeout || 15000);
 const MARKER = "on";
+
+// 用一组注入参数初始化模块级状态。in-process 调用（打包后主进程直接调）与
+// 独立进程（开发期 node injector.mjs）都通过它设置，因此可重复调用。
+function initInjectorArgs(argv) {
+  args = parseArgs(argv);
+  COMMAND = args._[0] || "apply";
+  PORT = Number(args.port || 9345);
+  ASSETS = args.assets ? resolve(String(args.assets)) : ASSETS_DEFAULT;
+  THEME_PATH = args.theme ? resolve(String(args.theme)) : join(ASSETS, "theme.json");
+  TIMEOUT = Number(args.timeout || 15000);
+}
 
 function log(...m) { console.log("[wb-skin]", ...m); }
 function warn(...m) { console.warn("[wb-skin]", ...m); }
@@ -140,7 +165,7 @@ function hexToRgb(hex) {
 function buildConfig() {
   // 剥掉可能存在的 UTF-8 BOM（PowerShell 5.1 的 Set-Content -Encoding UTF8 会写入 BOM）
   const theme = JSON.parse(readFileSync(THEME_PATH, "utf8").replace(/^\uFEFF/, ""));
-  const skinCss = readFileSync(join(ASSETS, "skin.css"), "utf8");
+  const skinCss = loadAsset("skin.css");
 
   const g = theme.glass || {};
   const bg = theme.background || {};
@@ -188,7 +213,7 @@ body[data-wb-skin="${MARKER}"][data-vscode-theme-kind="vscode-light"]{
 }
 
 function buildPayload(config) {
-  const injectSrc = readFileSync(join(ASSETS, "renderer-inject.js"), "utf8");
+  const injectSrc = loadAsset("renderer-inject.js");
   return `window.__WB_SKIN_CONFIG=${JSON.stringify(config)};\n${injectSrc}`;
 }
 
@@ -367,8 +392,9 @@ async function cmdVerify() {
       if (s.installed && s.marker === MARKER && s.bg && s.style) ok = true;
     } catch (e) { warn("校验失败:", e.message); }
   }
-  if (!ok) { console.error("[wb-skin] 校验未通过：皮肤未生效。"); process.exit(1); }
+  if (!ok) { console.error("[wb-skin] 校验未通过：皮肤未生效。"); return false; }
   log("校验通过：皮肤已生效。");
+  return true;
 }
 
 async function cmdShot() {
@@ -450,22 +476,33 @@ async function cmdWatch() {
 }
 
 // ---- 入口 ------------------------------------------------------------------
-(async () => {
+// 供打包后的主进程 in-process 调用（不再 spawn 独立 node）。返回 { status }，
+// 不调用 process.exit —— 由调用方决定进程去留。watch 命令会一直循环不返回。
+export async function runInjectorMain(argv) {
+  initInjectorArgs(argv);
   try {
     switch (COMMAND) {
-      case "apply": await cmdApply(); break;
-      case "remove": await cmdRemove(); break;
-      case "verify": await cmdVerify(); break;
-      case "shot": await cmdShot(); break;
-      case "diag": await cmdDiag(); break;
-      case "watch": await cmdWatch(); break;
-      default: console.error("未知命令:", COMMAND); process.exit(2);
+      case "apply": await cmdApply(); return { status: 0 };
+      case "remove": await cmdRemove(); return { status: 0 };
+      case "verify": { const ok = await cmdVerify(); return { status: ok ? 0 : 1 }; }
+      case "shot": await cmdShot(); return { status: 0 };
+      case "diag": await cmdDiag(); return { status: 0 };
+      case "watch": await cmdWatch(); return { status: 0 };
+      default: console.error("未知命令:", COMMAND); return { status: 2 };
     }
   } catch (e) {
     console.error("[wb-skin] 错误:", e.message);
-    process.exit(1);
+    return { status: 1 };
   }
-  // fetch() keep-alive sockets to the CDP endpoint can keep the event loop
-  // alive; exit explicitly. (watch never reaches here — it loops forever.)
-  process.exit(0);
+}
+
+// 开发期直接运行（node scripts/injector.mjs ...）时才自启。打包/被 import 时不触发。
+const _direct = (() => {
+  try {
+    const entry = (process.argv[1] || "").replace(/\\/g, "/");
+    return /\/injector\.mjs$/.test(entry);
+  } catch { return false; }
 })();
+if (_direct) {
+  runInjectorMain(process.argv.slice(2)).then((r) => process.exit(r.status || 0));
+}

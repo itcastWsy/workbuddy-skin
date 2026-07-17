@@ -22,6 +22,7 @@
 
 import { existsSync, copyFileSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join, resolve, basename } from "node:path";
+import { createInterface } from "node:readline";
 import * as P from "./platform.mjs";
 import { processIntoStore, dominantAccent } from "./image.mjs";
 
@@ -39,7 +40,10 @@ function parseArgs(argv) {
   }
   return a;
 }
-const args = parseArgs(process.argv.slice(2));
+// A packaged SEA exe sets process.argv to [exe, exe, ...userArgs], so user args
+// start at index 2 exactly like `node bin/...`. One slice covers both.
+const CLI_ARGV = process.argv.slice(2);
+const args = parseArgs(CLI_ARGV);
 const CMD = (args._[0] || "help").toLowerCase();
 const SUB = args._[1];
 
@@ -144,18 +148,9 @@ function cmdInstall() {
   P.ok(`Node: ${process.version} (${process.platform})`);
   const exe = P.findExecutable(args.exe && args.exe !== true ? String(args.exe) : undefined);
   P.ok(`WorkBuddy found: ${exe}`);
-  // seed bundled themes into the user store
-  let seeded = 0;
-  if (existsSync(P.bundledThemesDir)) {
-    for (const f of readdirSync(P.bundledThemesDir)) {
-      if (f.endsWith(".json")) { copyFileSync(join(P.bundledThemesDir, f), join(P.themesStoreDir(), f)); seeded++; }
-    }
-  }
-  // also seed the legacy assets/theme.json as aurora-glass if no bundled themes
-  const legacy = join(P.ASSETS, "theme.json");
-  if (seeded === 0 && existsSync(legacy)) {
-    copyFileSync(legacy, join(P.themesStoreDir(), "aurora-glass.json")); seeded = 1;
-  }
+  // seed built-in themes into the user store (works from disk in dev and from
+  // the embedded bundle in the packaged exe)
+  const seeded = P.ensureSeeded();
   P.saveState({ exe, activeTheme: "aurora-glass", installedAt: new Date().toISOString(), projectRoot: P.ROOT });
   P.ok(`Install complete. Seeded ${seeded} theme(s) into ${P.themesStoreDir()}`);
   console.log("");
@@ -241,7 +236,7 @@ async function cmdApply() {
 
   // inject
   P.info(`Injecting skin via CDP on port ${port} ...`);
-  const r = P.runInjector(["apply", "--port", String(port), "--theme", themePath]);
+  const r = await P.runInjector(["apply", "--port", String(port), "--theme", themePath]);
   if (r.status !== 0) { P.err(`Injection failed (exit ${r.status}).`); process.exit(r.status || 1); }
 
   // optional watch daemon
@@ -266,7 +261,7 @@ async function cmdApply() {
   });
 
   await P.sleep(800);
-  const v = P.runInjector(["verify", "--port", String(port)]);
+  const v = await P.runInjector(["verify", "--port", String(port)]);
   if (v.status === 0) P.ok("Skin applied. Enjoy your WorkBuddy.");
   else P.warn("Verify did not confirm yet; it may still be loading. Re-run apply if needed.");
 }
@@ -281,7 +276,7 @@ async function cmdRestore() {
   let port = Number(args.port || 0);
   if (port <= 0 && state && state.port) port = Number(state.port);
   if (port > 0) {
-    try { P.runInjector(["remove", "--port", String(port)]); } catch { /* ignore */ }
+    try { await P.runInjector(["remove", "--port", String(port)]); } catch { /* ignore */ }
   }
   // resolve exe then relaunch clean
   let exe = null;
@@ -306,13 +301,18 @@ async function cmdRestore() {
 
 function listThemes() {
   const seen = new Map();
-  for (const dir of [P.bundledThemesDir, P.themesStoreDir()]) {
-    if (!existsSync(dir)) continue;
-    for (const f of readdirSync(dir)) {
+  // built-in themes (embedded in the exe, or from assets/ in dev)
+  for (const [id, obj] of Object.entries(P.bundledThemes())) {
+    seen.set(id, (obj && obj.name) || id);
+  }
+  // user store overrides / additions
+  const store = P.themesStoreDir();
+  if (existsSync(store)) {
+    for (const f of readdirSync(store)) {
       if (!f.endsWith(".json")) continue;
       const id = f.replace(/\.json$/i, "");
       let name = id;
-      try { name = (JSON.parse(readFileSync(join(dir, f), "utf8").replace(/^\uFEFF/, "")).name) || id; } catch { /* keep id */ }
+      try { name = (JSON.parse(readFileSync(join(store, f), "utf8").replace(/^\uFEFF/, "")).name) || id; } catch { /* keep id */ }
       seen.set(id, name);
     }
   }
@@ -392,7 +392,7 @@ async function cmdStatus() {
   if (state.port) {
     const live = await P.isPortReachable(Number(state.port));
     console.log(`  Debug live : ${live ? "yes" : "no"}`);
-    if (live) P.runInjector(["verify", "--port", String(state.port)]);
+    if (live) await P.runInjector(["verify", "--port", String(state.port)]);
   }
 }
 
@@ -479,8 +479,70 @@ Examples:
   workbuddy-skin restore`);
 }
 
+// ---- interactive menu (double-click friendly) ------------------------------
+// When the exe is double-clicked there are no CLI args, so we drive a tiny text
+// menu instead of dumping --help. Non-technical users never touch a terminal.
+function ask(rl, q) { return new Promise((res) => rl.question(q, (a) => res(a.trim()))); }
+
+async function interactiveMenu() {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const pause = async () => { await ask(rl, "\n按回车键返回菜单..."); };
+  try {
+    for (; ;) {
+      console.log("\n============================================");
+      console.log("   WorkBuddy 换肤工具");
+      console.log("============================================");
+      console.log("  1) 应用皮肤（自动启动 WorkBuddy 并换肤）");
+      console.log("  2) 选择主题");
+      console.log("  3) 设置壁纸（输入本地图片路径）");
+      console.log("  4) 清除壁纸（恢复主题渐变）");
+      console.log("  5) 还原为官方外观");
+      if (P.IS_WIN) console.log("  6) 开机自启换肤（给快捷方式加调试端口）");
+      console.log("  0) 退出");
+      const c = await ask(rl, "\n请输入序号后回车：");
+      try {
+        if (c === "1") { await cmdApply(); await pause(); }
+        else if (c === "2") {
+          console.log("");
+          const list = listThemes();
+          list.forEach(([id, name], i) => console.log(`  ${i + 1}) ${id.padEnd(16)} ${name}`));
+          const pick = await ask(rl, "\n选择主题序号（回车跳过）：");
+          const idx = Number(pick) - 1;
+          if (list[idx]) { args.theme = list[idx][0]; await cmdApply(); }
+          await pause();
+        }
+        else if (c === "3") {
+          const p = await ask(rl, "\n拖入或粘贴图片路径后回车：");
+          const clean = p.replace(/^["']|["']$/g, "");
+          if (clean) { args.bg = clean; await cmdApply(); }
+          await pause();
+        }
+        else if (c === "4") { P.saveState({ background: null, accent: null }); await cmdApply(); await pause(); }
+        else if (c === "5") { await cmdRestore(); await pause(); }
+        else if (c === "6" && P.IS_WIN) { await cmdAutostart(); await pause(); }
+        else if (c === "0" || c.toLowerCase() === "q") { break; }
+        else { console.log("无效的选项。"); }
+      } catch (e) { P.err(e.message); await pause(); }
+    }
+  } finally { rl.close(); }
+}
+
 // ---- dispatch --------------------------------------------------------------
 (async () => {
+  // hidden route: the self-exec'd watch daemon (see spawnInjectorDetached)
+  if (CLI_ARGV[0] === "__inject") {
+    const { runInjectorMain } = await import("./injector.mjs");
+    const r = await runInjectorMain(CLI_ARGV.slice(1));
+    process.exit((r && r.status) || 0);
+  }
+
+  // make built-in themes available even without an explicit "install" step so
+  // a freshly-downloaded exe just works on first run
+  try { P.ensureSeeded(); } catch { /* non-fatal */ }
+
+  // no args (e.g. double-clicked exe, or bare `workbuddy-skin`) → menu
+  if (CLI_ARGV.length === 0) { await interactiveMenu(); process.exit(0); }
+
   try {
     switch (CMD) {
       case "install": cmdInstall(); break;

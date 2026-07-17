@@ -17,8 +17,11 @@ import { join, resolve, basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync, execSync } from "node:child_process";
 import net from "node:net";
+import { createRequire } from "node:module";
+import { runInjectorMain } from "./injector.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const _require = createRequire(import.meta.url);
 
 export const ROOT = resolve(__dirname, "..");
 export const ASSETS = join(ROOT, "assets");
@@ -63,6 +66,60 @@ export function portraitsDir() {
   return d;
 }
 export const bundledThemesDir = join(ASSETS, "themes");
+
+// ---- SEA (single-exe) awareness + built-in theme bundle --------------------
+// When packaged as a Node SEA single-file exe, there is no assets/ directory on
+// disk: built-in themes are embedded via sea-config.json and read back through
+// node:sea getAsset. In dev (plain node) we read the same files from disk. Both
+// forms behave identically.
+export function isSea() {
+  try {
+    const sea = _require("node:sea");
+    return typeof sea.isSea === "function" && sea.isSea();
+  } catch { return false; }
+}
+
+// Returns { id: themeObject } for every built-in theme.
+export function bundledThemes() {
+  const out = {};
+  if (isSea()) {
+    try {
+      const sea = _require("node:sea");
+      const bundle = JSON.parse(sea.getAsset("themes-bundle.json", "utf8"));
+      for (const [id, obj] of Object.entries(bundle)) out[id] = obj;
+    } catch { /* no embedded themes */ }
+    return out;
+  }
+  if (existsSync(bundledThemesDir)) {
+    for (const f of readdirSync(bundledThemesDir)) {
+      if (!f.endsWith(".json")) continue;
+      const id = f.replace(/\.json$/i, "");
+      try { out[id] = JSON.parse(readFileSync(join(bundledThemesDir, f), "utf8").replace(/^\uFEFF/, "")); }
+      catch { /* skip malformed */ }
+    }
+  }
+  // legacy assets/theme.json as the default aurora-glass when nothing else exists
+  if (!out["aurora-glass"]) {
+    const legacy = join(ASSETS, "theme.json");
+    if (existsSync(legacy)) {
+      try { out["aurora-glass"] = JSON.parse(readFileSync(legacy, "utf8").replace(/^\uFEFF/, "")); }
+      catch { /* ignore */ }
+    }
+  }
+  return out;
+}
+
+// Seed built-in themes into the user store if missing. Idempotent; safe to call
+// on every run so the exe works even without an explicit "install" step.
+export function ensureSeeded() {
+  const store = themesStoreDir();
+  let seeded = 0;
+  for (const [id, obj] of Object.entries(bundledThemes())) {
+    const dest = join(store, `${id}.json`);
+    if (!existsSync(dest)) { writeFileSync(dest, JSON.stringify(obj, null, 2), "utf8"); seeded++; }
+  }
+  return seeded;
+}
 
 // ---- state (clean UTF-8, no BOM — Node writes it correctly) ----------------
 export function readState() {
@@ -256,17 +313,23 @@ export function launchNormal(exe) {
   child.unref();
 }
 
-// ---- spawn injector as the CDP worker (preserves tested behavior) ----------
-export function runInjector(argv, { inherit = true } = {}) {
-  const r = spawnSync(process.execPath, [INJECTOR, ...argv], {
-    stdio: inherit ? "inherit" : ["ignore", "pipe", "pipe"],
-    encoding: "utf8",
-  });
-  return r;
+// ---- run the CDP injector --------------------------------------------------
+// In-process: the injector logic runs inside this same process (no child node,
+// no separate .mjs file — required once packaged as a single-file exe). Returns
+// { status } to match the previous spawnSync-based contract.
+export async function runInjector(argv) {
+  const r = await runInjectorMain(argv);
+  return { status: r && typeof r.status === "number" ? r.status : 0 };
 }
 
+// The watch daemon must outlive this command, so it needs its own long-lived
+// process. We re-exec ourselves with a hidden "__inject" first arg that routes
+// straight to the injector. SEA: exec the exe directly; dev: exec node + entry.
 export function spawnInjectorDetached(argv) {
-  const child = spawn(process.execPath, [INJECTOR, ...argv], { detached: true, stdio: "ignore" });
+  const full = isSea()
+    ? ["__inject", ...argv]
+    : [process.argv[1], "__inject", ...argv];
+  const child = spawn(process.execPath, full, { detached: true, stdio: "ignore" });
   child.unref();
   return child.pid;
 }

@@ -1,0 +1,78 @@
+name: Build & Release
+
+# Push a version tag (e.g. `git tag v1.2.0 && git push origin v1.2.0`) and this
+# workflow builds a single-file executable on each OS runner using that runner's
+# own Node (Node SEA — no cross-compile, no downloads) and attaches every binary
+# to the matching GitHub Release so users can download & double-click.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {} # allow manual runs for testing (artifacts only, no release)
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows-x64
+            out: dist/workbuddy-skin.exe
+            asset: workbuddy-skin-windows-x64.exe
+          - os: ubuntu-latest
+            label: linux-x64
+            out: dist/workbuddy-skin
+            asset: workbuddy-skin-linux-x64
+          - os: macos-latest
+            label: macos-arm64
+            out: dist/workbuddy-skin
+            asset: workbuddy-skin-macos-arm64
+          - os: macos-13
+            label: macos-x64
+            out: dist/workbuddy-skin
+            asset: workbuddy-skin-macos-x64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Sanity check (syntax + theme list)
+        run: node bin/workbuddy-skin.mjs theme list
+
+      - name: Build single-file executable
+        run: npm run build
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          mkdir -p out
+          cp "${{ matrix.out }}" "out/${{ matrix.asset }}"
+          ls -lh out
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: out/${{ matrix.asset }}
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/${{ matrix.asset }}
+          fail_on_unmatched_files: true
+          generate_release_notes: true

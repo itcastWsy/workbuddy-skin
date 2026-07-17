@@ -16,7 +16,7 @@
 - **自动主题色**：换壁纸时自动提取封面主色，给玻璃描边/高光上色，让界面和背景更搭（灰阶/近单色图保持主题默认色）。
 - **明暗自适应**：跟随 WorkBuddy 的浅色 / 暗色主题自动切换配色。
 - **首页出氛围，任务页更安静**：对话页自动加一层可读性遮罩并轻微压暗背景。
-- **多主题一键切换**：内置 4 套预设，可实时切换（不用重启 WorkBuddy）。
+- **多主题一键切换**：内置 5 套预设，可实时切换（不用重启 WorkBuddy）。
 - **可选零重启**：`autostart` 把快捷方式改成自带调试端口，之后换肤永远热注入、不再重启。
 - **可还原**：一条命令移除皮肤、干净重启 WorkBuddy。
 - **相对安全**：调试端口只绑 `127.0.0.1`，不改任何官方文件。
@@ -25,7 +25,47 @@
 
 ---
 
-## 快速开始
+## 下载安装（普通用户，推荐）
+
+**不需要装 Node，也不用敲命令。** 只要你装了 WorkBuddy 就能用。
+
+1. 打开本仓库的 **[Releases](https://github.com/itcastWsy/workbuddy-skin/releases)** 页面，下载对应你系统的文件：
+
+   | 系统 | 下载文件 |
+   |---|---|
+   | Windows（64 位） | `workbuddy-skin-windows-x64.exe` |
+   | macOS（Apple 芯片 M1/M2/M3） | `workbuddy-skin-macos-arm64` |
+   | macOS（Intel 芯片） | `workbuddy-skin-macos-x64` |
+   | Linux（64 位） | `workbuddy-skin-linux-x64` |
+
+2. **双击运行**（macOS / Linux 首次可能需要在终端 `chmod +x ./workbuddy-skin-*` 授予执行权限，或右键→打开绕过 Gatekeeper）。
+3. 程序会弹出一个**中文菜单**，按数字选择即可：
+
+   ```
+   ============================================
+      WorkBuddy 换肤工具
+   ============================================
+     1) 应用皮肤（自动启动 WorkBuddy 并换肤）
+     2) 选择主题
+     3) 设置壁纸（输入本地图片路径）
+     4) 清除壁纸（恢复主题渐变）
+     5) 还原为官方外观
+     6) 开机自启换肤（给快捷方式加调试端口）   # 仅 Windows
+     0) 退出
+   ```
+
+   - **第一次用**：先选 `1` 应用皮肤——它会按需启动 WorkBuddy 并换上默认的「极光玻璃」主题。
+   - **换壁纸**：选 `3`，把图片文件**拖进窗口**（或粘贴完整路径）再回车。
+   - **换风格**：选 `2` 从 5 套内置主题里挑。
+   - **不想要了**：选 `5` 一键还原成官方原样。
+
+> 单个 exe 已内置全部主题与样式资源，**离线可用、绿色免安装**，不写注册表、不改 WorkBuddy 的任何官方文件。删除文件即卸载（本地设置存在下方“目录结构”所列的用户目录，`5) 还原` 后可手动删除）。
+
+想用命令行？双击版同样支持所有命令，例如 Windows 上：`workbuddy-skin-windows-x64.exe apply --bg D:\pic.jpg`。参数见下方[用法](#用法)。
+
+---
+
+## 快速开始（开发者 / 从源码运行）
 
 **前置**：Node.js 18+（推荐 20 / 22）。
 
@@ -41,6 +81,13 @@ node bin/workbuddy-skin.mjs restore
 ```
 
 装成全局命令后可直接用 `workbuddy-skin apply`（`npm link` 或发布到 npm 后 `npx workbuddy-skin apply`）。
+
+自己打包一个双击 exe（用本机 Node，无需联网下载基座）：
+
+```bash
+npm install          # 装 esbuild / postject（仅打包时需要）
+npm run build        # 产物在 dist/workbuddy-skin(.exe)
+```
 
 > **Windows 用户**：仓库保留了 `scripts\*.ps1` 薄壳，习惯 PowerShell 的可继续用
 > `powershell -ExecutionPolicy Bypass -File .\scripts\start-skin.ps1 -RestartExisting`，
@@ -63,6 +110,8 @@ workbuddy-skin <command> [options]
 | `theme use <id>` | 切换主题（会话在线则实时重注入） |
 | `bg set <image>` | 用本地图片当壁纸（自动持久化） |
 | `bg clear` | 回到主题自带的渐变背景 |
+| `portrait set <image>` | 给带立绘位的主题（如 portrait-fan）放一张人物立绘（自动持久化） |
+| `portrait clear` | 移除立绘 |
 | `autostart [undo]` | 改写 WorkBuddy 快捷方式使其自带调试端口，之后换肤永不重启（`undo` 还原） |
 | `status` | 查看当前状态与皮肤是否生效 |
 
@@ -72,7 +121,7 @@ workbuddy-skin <command> [options]
 # 换壁纸（内联为 data URI 注入，绕过渲染进程 CSP 对 file: 的拦截；之后自动沿用）
 workbuddy-skin bg set ~/Pictures/beach.jpg
 
-# 切主题（内置：aurora-glass / midnight / sakura / mono）
+# 切主题（内置：aurora-glass / midnight / sakura / mono / portrait-fan）
 workbuddy-skin theme use midnight
 
 # 常驻守护，刷新/切换页面后自动重注入
@@ -148,17 +197,22 @@ workbuddy-skin/
 ├─ bin/
 │  └─ workbuddy-skin.mjs  # CLI 入口（npx/bin）
 ├─ scripts/
-│  ├─ cli.mjs             # 命令分发：install/apply/restore/theme/bg/status
-│  ├─ platform.mjs        # 跨平台：exe 发现 / 进程 / 端口 / 状态 / 启动
-│  ├─ injector.mjs        # CDP 客户端：apply/watch/remove/verify/shot/diag
+│  ├─ cli.mjs             # 命令分发 + 双击交互菜单：install/apply/restore/theme/bg/portrait/autostart/status
+│  ├─ platform.mjs        # 跨平台：exe 发现 / 进程 / 端口 / 状态 / 启动 / 内置主题（SEA 感知）
+│  ├─ injector.mjs        # CDP 客户端：apply/watch/remove/verify/shot/diag（可进程内调用，供单文件 exe）
+│  ├─ image.mjs           # 壁纸/立绘自动压缩 + 自动取色（jimp）
+│  ├─ build-exe.mjs       # 打包成单文件可执行程序（Node SEA：esbuild → blob → postject）
 │  ├─ selftest.mjs        # 离线自测（不需运行中的 App）
 │  └─ *.ps1               # Windows 薄壳，转调 Node CLI（可选）
 ├─ assets/
 │  ├─ theme.json          # 默认主题契约
-│  ├─ themes/             # 预设主题：aurora-glass / midnight / sakura / mono
+│  ├─ themes/             # 预设主题：aurora-glass / midnight / sakura / mono / portrait-fan
 │  ├─ skin.css            # 视觉层（针对 WorkBuddy 选择器的玻璃化规则）
 │  ├─ samples/            # 原创示例壁纸（aurora-sample.jpg，可直接 bg set 试用）
 │  └─ renderer-inject.js  # 渲染进程内的幂等 DOM 集成 + 清理
+├─ .github/workflows/
+│  └─ release.yml         # 打 tag 自动多平台构建并发布到 Releases
+├─ dist/                  # 构建产物（git 忽略；exe 通过 Release 分发，不入库）
 ├─ package.json
 ├─ LICENSE
 └─ README.md
@@ -197,6 +251,23 @@ node scripts/injector.mjs shot --port 9345 --out wb-shot.png
 # 诊断背景层与遮挡容器（排查壁纸为何不显示）
 node scripts/injector.mjs diag --port 9345
 ```
+
+---
+
+## 发布新版本（维护者）
+
+发布完全自动化：**打一个版本 tag 并推送**，GitHub Actions 就会在 Windows / macOS(Intel & Apple Silicon) / Linux 四个运行器上各自用它们自带的 Node 构建单文件可执行程序（Node SEA，无需交叉编译、无需下载基座），并把四份产物自动上传到该版本的 [Releases](https://github.com/itcastWsy/workbuddy-skin/releases)。
+
+```bash
+# 版本号建议同步改一下 package.json 的 "version"
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+- 工作流定义见 [`.github/workflows/release.yml`](.github/workflows/release.yml)，触发条件为推送 `v*` 形式的 tag。
+- 也可在 Actions 页面手动 `workflow_dispatch` 触发，仅构建产物、不创建 Release（用于验证构建）。
+- Release 说明由 `generate_release_notes` 自动根据提交记录生成，可事后编辑补充。
+- 产物命名：`workbuddy-skin-windows-x64.exe` / `-macos-arm64` / `-macos-x64` / `-linux-x64`。
 
 ---
 

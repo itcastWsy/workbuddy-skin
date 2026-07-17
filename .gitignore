@@ -1,6 +1,9 @@
 # dependencies
 node_modules/
 
+# build output (single-file executables are attached to GitHub Releases, not committed)
+dist/
+
 # local scratch / screenshots / throwaway probe scripts (_shot.mjs, _diag.mjs, _*.png ...)
 _*
 wb-skin-shot.png

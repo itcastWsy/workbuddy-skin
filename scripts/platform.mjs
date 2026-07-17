@@ -351,16 +351,64 @@ export function debugArgs(port) {
   ];
 }
 
+// 启动前校验：自动定位（尤其是全盘扫描/Administrator 账户）可能落到一个并不是
+// 真正 WorkBuddy.exe、甚至根本不可执行的路径上，直接 spawn 会抛看不懂的 EFTYPE。
+// 这里先把明显不合法的路径挡掉，给出一句能照做的中文引导。
+function assertLaunchable(exe) {
+  const hint = '请用菜单「7) 指定 WorkBuddy 位置」重新指定真正的 WorkBuddy 程序，' +
+    '或命令行加 --exe "完整路径"。';
+  if (!exe || typeof exe !== "string") {
+    throw new Error(`没拿到 WorkBuddy 程序路径。${hint}`);
+  }
+  if (!existsSync(exe)) {
+    throw new Error(`WorkBuddy 程序不存在：${exe}\n${hint}`);
+  }
+  let st;
+  try { st = statSync(exe); } catch { st = null; }
+  if (!st || !st.isFile()) {
+    throw new Error(`这不是一个可启动的程序文件（可能是文件夹或快捷方式）：${exe}\n${hint}`);
+  }
+  if (IS_WIN && !/\.exe$/i.test(exe)) {
+    throw new Error(`这不是一个 .exe 程序：${exe}\n${hint}`);
+  }
+}
+
+// 实际 spawn；把同步/异步的启动失败都翻成中文。detached+unref 让 WorkBuddy 脱离
+// 本进程独立存活，因此额外挂一个 'error' 监听，避免异步失败变成未捕获异常直接崩溃。
+function launchGuarded(exe, extraArgs) {
+  assertLaunchable(exe);
+  const hint = '请用菜单「7) 指定 WorkBuddy 位置」重新指定真正的 WorkBuddy 程序，' +
+    '或命令行加 --exe "完整路径"。';
+  const explain = (e) => {
+    const code = e && e.code ? ` (${e.code})` : "";
+    if (e && (e.code === "EFTYPE" || e.code === "ENOEXEC")) {
+      return `无法启动 WorkBuddy：这个文件不是有效的可执行程序${code}。\n    ${exe}\n${hint}`;
+    }
+    if (e && e.code === "EACCES") {
+      return `无法启动 WorkBuddy：没有权限运行该程序${code}。\n    ${exe}\n${hint}`;
+    }
+    if (e && e.code === "ENOENT") {
+      return `无法启动 WorkBuddy：程序路径已失效${code}。\n    ${exe}\n${hint}`;
+    }
+    return `无法启动 WorkBuddy${code}：${e && e.message ? e.message : e}\n${hint}`;
+  };
+  try {
+    const child = spawn(exe, extraArgs, { detached: true, stdio: "ignore" });
+    child.on("error", (e) => { err(explain(e)); }); // 异步失败：不让它变成未捕获异常
+    child.unref();
+  } catch (e) {
+    throw new Error(explain(e)); // 同步失败（如 EFTYPE）：抛出中文提示，交给上层菜单展示
+  }
+}
+
 export function launchDebug(exe, port) {
   info(`Launching WorkBuddy with remote debugging on 127.0.0.1:${port} ...`);
-  const child = spawn(exe, debugArgs(port), { detached: true, stdio: "ignore" });
-  child.unref();
+  launchGuarded(exe, debugArgs(port));
 }
 
 export function launchNormal(exe) {
   info("Launching WorkBuddy normally (no debug port)...");
-  const child = spawn(exe, [], { detached: true, stdio: "ignore" });
-  child.unref();
+  launchGuarded(exe, []);
 }
 
 // ---- run the CDP injector --------------------------------------------------

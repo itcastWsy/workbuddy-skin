@@ -387,12 +387,59 @@ async function cmdStatus() {
   console.log(`  Wallpaper  : ${state.background || "(gradient)"}`);
   console.log(`  Accent     : ${state.accent || "(theme default)"}`);
   console.log(`  Portrait   : ${state.portrait || "(none)"}`);
+  console.log(`  Autostart  : ${state.autostart ? `on (port ${state.autostartPort || state.port || 9345})` : "off"}`);
   console.log(`  Port       : ${state.port || "(none)"}`);
   if (state.port) {
     const live = await P.isPortReachable(Number(state.port));
     console.log(`  Debug live : ${live ? "yes" : "no"}`);
     if (live) P.runInjector(["verify", "--port", String(state.port)]);
   }
+}
+
+async function cmdAutostart() {
+  const undo = args.undo === true || (SUB && ["undo", "off"].includes(String(SUB).toLowerCase()));
+  const state = P.readState();
+  let exe;
+  try { exe = P.findExecutable(args.exe && args.exe !== true ? String(args.exe) : (state && state.exe) || undefined); }
+  catch (e) { P.err(e.message); process.exit(1); }
+  let port = Number(args.port || (state && state.port) || 0);
+  if (port <= 0) port = 9345;
+
+  const res = P.patchAutostart({ exe, port, undo });
+  if (!res.supported) {
+    P.warn(`autostart is automated on Windows only for now (current OS: ${res.os}).`);
+    P.info("Launch WorkBuddy with these flags so it always exposes the loopback debug port:");
+    console.log(`    ${res.flag}`);
+    P.info('Or just run "workbuddy-skin apply" — it opens WorkBuddy with the port already set.');
+    return;
+  }
+
+  const items = res.items || [];
+  if (!items.length) {
+    P.warn(`No WorkBuddy shortcuts found pointing to:\n    ${exe}`);
+    P.info('Pin/create a shortcut first, or use "apply --restart" once — the port stays up until WorkBuddy fully exits.');
+    if (undo) P.saveState({ autostart: false });
+    return;
+  }
+  for (const i of items) {
+    const mark = i.status === "patched" ? "+" : i.status === "unpatched" ? "-" : i.status === "error" ? "x" : ".";
+    console.log(`  ${mark} [${i.status}] ${i.path}`);
+  }
+  const errors = items.filter((i) => i.status === "error").length;
+
+  if (undo) {
+    const n = items.filter((i) => i.status === "unpatched").length;
+    P.saveState({ autostart: false });
+    P.ok(`Autostart disabled. Removed the debug flag from ${n} shortcut(s).`);
+    P.info("Newly opened WorkBuddy windows will no longer expose the debug port.");
+  } else {
+    const n = items.filter((i) => i.status === "patched").length;
+    P.saveState({ autostart: true, autostartPort: port });
+    P.ok(`Autostart enabled on port ${port}. Patched ${n} shortcut(s); ${items.length - n} already OK.`);
+    P.info(`WorkBuddy launched from those shortcuts now self-exposes 127.0.0.1:${port} — skinning hot-injects, no restart.`);
+    P.info("Tip: fully close & reopen WorkBuddy once so the new flag takes effect.");
+  }
+  if (errors) P.warn(`${errors} shortcut(s) could not be updated (all-users scope likely needs admin). Re-run in an elevated terminal to include them.`);
 }
 
 function cmdHelp() {
@@ -411,6 +458,8 @@ Commands:
   bg clear                     back to the theme's gradient
   portrait set <image>         put a portrait cutout into a portrait theme (persists)
   portrait clear               remove the portrait slot image
+  autostart [undo]             patch WorkBuddy shortcuts to self-open the debug
+                               port (so skinning never restarts the app)
   status                       show current state
   help                         this message
 
@@ -440,6 +489,7 @@ Examples:
       case "theme": await cmdTheme(); break;
       case "bg": case "background": await cmdBg(); break;
       case "portrait": await cmdPortrait(); break;
+      case "autostart": await cmdAutostart(); break;
       case "status": await cmdStatus(); break;
       case "help": case "--help": case "-h": cmdHelp(); break;
       default: P.err(`Unknown command: ${CMD}`); cmdHelp(); process.exit(2);

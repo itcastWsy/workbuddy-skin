@@ -17,6 +17,7 @@
 - **明暗自适应**：跟随 WorkBuddy 的浅色 / 暗色主题自动切换配色。
 - **首页出氛围，任务页更安静**：对话页自动加一层可读性遮罩并轻微压暗背景。
 - **多主题一键切换**：内置 4 套预设，可实时切换（不用重启 WorkBuddy）。
+- **可选零重启**：`autostart` 把快捷方式改成自带调试端口，之后换肤永远热注入、不再重启。
 - **可还原**：一条命令移除皮肤、干净重启 WorkBuddy。
 - **相对安全**：调试端口只绑 `127.0.0.1`，不改任何官方文件。
 
@@ -62,6 +63,7 @@ workbuddy-skin <command> [options]
 | `theme use <id>` | 切换主题（会话在线则实时重注入） |
 | `bg set <image>` | 用本地图片当壁纸（自动持久化） |
 | `bg clear` | 回到主题自带的渐变背景 |
+| `autostart [undo]` | 改写 WorkBuddy 快捷方式使其自带调试端口，之后换肤永不重启（`undo` 还原） |
 | `status` | 查看当前状态与皮肤是否生效 |
 
 `apply` 选项：`--theme <id|path>`、`--bg <image>`、`--port <n>`、`--exe <path>`、`--restart`、`--watch`、`--no-launch`。
@@ -100,6 +102,25 @@ workbuddy-skin bg clear
 - **大图自动压缩**：超过安全体积的图片会在入库时自动缩放/重编码（壁纸转 JPEG、立绘转 PNG 并保留透明），避免 data URI 过大导致背景不生效——你直接丢原图即可，无需手动处理。
 - **自动主题色**：`bg set` 会从壁纸提取主色，把玻璃描边/高光染成相近色调，零操作；`status` 可看当前 `Accent`，`bg clear` 恢复主题默认色。灰阶/近单色图不改色。
 - 想连玻璃风格一起换，才用 `theme use <id>`；只换图片，永远用 `bg`。
+
+### 让换肤永不重启 WorkBuddy（autostart）
+
+换肤靠 CDP 注入，需要 WorkBuddy 带一个只绑 `127.0.0.1` 的调试端口。而 Chromium 的
+`--remote-debugging-port` **只能在启动那一刻传**，没法给一个已经裸启动的进程事后补上——
+所以如果 WorkBuddy 正开着且没端口，第一次上皮肤就得重启它一次。
+
+`autostart` 一劳永逸解决这件事：它把 WorkBuddy 的快捷方式（桌面 / 开始菜单 / 任务栏）
+改成自带调试端口，之后每次开机/点击启动它都天然带端口，换肤全程**热注入、零重启**。
+
+```bash
+workbuddy-skin autostart          # 给快捷方式加上调试端口标记
+workbuddy-skin autostart undo     # 还原快捷方式（去掉标记）
+```
+
+- 幂等：重复运行只会跳过已处理的快捷方式。
+- 执行后**彻底关掉再重开一次 WorkBuddy**，新标记才会生效。
+- 全员范围（所有用户的开始菜单）的快捷方式可能需要管理员权限，普通终端会跳过并提示。
+- 目前 Windows 全自动；macOS / Linux 会打印出需要手动附加的启动参数。
 
 ---
 

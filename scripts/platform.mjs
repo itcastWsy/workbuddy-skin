@@ -11,7 +11,7 @@
 // Only 127.0.0.1 is ever used for CDP. No official files are modified.
 // ============================================================================
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync, rmSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join, resolve, basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -235,13 +235,18 @@ export async function findFreePort(preferred = 9345, tries = 40) {
 }
 
 // ---- launch ----------------------------------------------------------------
-export function launchDebug(exe, port) {
-  info(`Launching WorkBuddy with remote debugging on 127.0.0.1:${port} ...`);
-  const args = [
+// The two flags that expose a loopback-only CDP endpoint. Shared by launchDebug
+// and by the autostart shortcut patcher so both stay in sync.
+export function debugArgs(port) {
+  return [
     `--remote-debugging-port=${port}`,
     `--remote-allow-origins=http://127.0.0.1:${port}`,
   ];
-  const child = spawn(exe, args, { detached: true, stdio: "ignore" });
+}
+
+export function launchDebug(exe, port) {
+  info(`Launching WorkBuddy with remote debugging on 127.0.0.1:${port} ...`);
+  const child = spawn(exe, debugArgs(port), { detached: true, stdio: "ignore" });
   child.unref();
 }
 
@@ -264,6 +269,78 @@ export function spawnInjectorDetached(argv) {
   const child = spawn(process.execPath, [INJECTOR, ...argv], { detached: true, stdio: "ignore" });
   child.unref();
   return child.pid;
+}
+
+// ---- autostart: patch WorkBuddy shortcuts to self-expose the debug port ----
+// Windows only for now. Scans Desktop / Start Menu / pinned-taskbar shortcuts,
+// and for any .lnk whose target is the WorkBuddy exe, appends (or, with undo,
+// strips) the loopback debug flags in its Arguments. Idempotent; user-scope
+// shortcuts patch without admin, machine-scope ones may report "error".
+export function patchAutostart({ exe, port, undo = false }) {
+  if (!IS_WIN) {
+    return { supported: false, os: OS, port, flag: debugArgs(port).join(" ") };
+  }
+  const ps = [
+    "param([string]$Exe,[int]$Port,[switch]$Undo)",
+    "$ErrorActionPreference = 'SilentlyContinue'",
+    "$flag = '--remote-debugging-port=' + $Port",
+    "$origin = '--remote-allow-origins=http://127.0.0.1:' + $Port",
+    "$debug = $flag + ' ' + $origin",
+    "$dirs = @(",
+    "  [Environment]::GetFolderPath('Desktop'),",
+    "  [Environment]::GetFolderPath('CommonDesktopDirectory'),",
+    "  (Join-Path $env:APPDATA 'Microsoft\\Windows\\Start Menu\\Programs'),",
+    "  (Join-Path $env:ProgramData 'Microsoft\\Windows\\Start Menu\\Programs'),",
+    "  (Join-Path $env:APPDATA 'Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar')",
+    ") | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique",
+    "$sh = New-Object -ComObject WScript.Shell",
+    "foreach ($dir in $dirs) {",
+    "  $files = Get-ChildItem -LiteralPath $dir -Recurse -Filter *.lnk -ErrorAction SilentlyContinue",
+    "  foreach ($f in $files) {",
+    "    $lnk = $sh.CreateShortcut($f.FullName)",
+    "    $tp = [string]$lnk.TargetPath",
+    "    if (-not $tp) { continue }",
+    "    if ($tp.ToLower() -ne $Exe.ToLower()) { continue }",
+    "    $cur = [string]$lnk.Arguments",
+    "    $new = $cur",
+    "    $status = 'skipped'",
+    "    if ($Undo) {",
+    "      $new = [regex]::Replace($new, '--remote-allow-origins=http://127\\.0\\.0\\.1:\\d+', '')",
+    "      $new = [regex]::Replace($new, '--remote-debugging-port=\\d+', '')",
+    "      $new = ([regex]::Replace($new, '\\s+', ' ')).Trim()",
+    "      if ($new -ne $cur) {",
+    "        $lnk.Arguments = $new",
+    "        try { $lnk.Save(); $status = 'unpatched' } catch { $status = 'error' }",
+    "      }",
+    "    } else {",
+    "      if ($cur -notmatch '--remote-debugging-port') {",
+    "        $new = ($cur + ' ' + $debug).Trim()",
+    "        $lnk.Arguments = $new",
+    "        try { $lnk.Save(); $status = 'patched' } catch { $status = 'error' }",
+    "      }",
+    "    }",
+    "    $o = [pscustomobject]@{ path = $f.FullName; status = $status; args = ([string]$lnk.Arguments) }",
+    "    Write-Output ($o | ConvertTo-Json -Compress)",
+    "  }",
+    "}",
+  ].join("\n");
+
+  const tmp = join(stateDir(), "wb-autostart.ps1");
+  writeFileSync(tmp, ps, "utf8");
+  try {
+    const psArgs = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", tmp, "-Exe", exe, "-Port", String(port)];
+    if (undo) psArgs.push("-Undo");
+    const r = spawnSync("powershell", psArgs, { encoding: "utf8" });
+    const items = [];
+    for (const line of (r.stdout || "").split(/\r?\n/)) {
+      const s = line.trim();
+      if (!s) continue;
+      try { items.push(JSON.parse(s)); } catch { /* ignore non-JSON noise */ }
+    }
+    return { supported: true, port, items, stderr: (r.stderr || "").trim() };
+  } finally {
+    try { rmSync(tmp, { force: true }); } catch { /* ignore */ }
+  }
 }
 
 export function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }

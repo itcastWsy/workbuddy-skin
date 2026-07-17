@@ -45,6 +45,7 @@ If WorkBuddy is already running WITHOUT a debug port, `apply` will ask for `--re
 | Add a portrait / idol image ("fan edition") | `workbuddy-skin theme use portrait-fan` then `workbuddy-skin portrait set "<image>"` |
 | Replace the portrait | `workbuddy-skin portrait set "<image>"` |
 | Remove the portrait | `workbuddy-skin portrait clear` |
+| Make skinning never restart WorkBuddy again | `workbuddy-skin autostart` (undo: `autostart undo`) |
 | See current state | `workbuddy-skin status` |
 | Undo everything | `workbuddy-skin restore` |
 
@@ -65,6 +66,11 @@ Bundled theme ids include `aurora-glass`, `midnight`, `mono`, `sakura`, and
 
 - Changes to a live session hot-reload (no restart) when a debug port is already up.
 - The wallpaper/portrait/theme persist; later `apply` reuses them automatically.
+- **Never restart again**: `apply` must restart WorkBuddy *once* if it's running without a
+  debug port (Chromium can only open `--remote-debugging-port` at launch). Run
+  `workbuddy-skin autostart` to patch WorkBuddy's shortcuts so every future launch self-opens
+  the loopback port — after that, all skinning hot-injects with zero restarts. `autostart undo`
+  reverts the shortcuts. (Windows automated; macOS/Linux prints the exact flag to add.)
 - **Auto accent**: `bg set` extracts the wallpaper's dominant color and tints the glass
   borders/highlights to match — zero extra steps. Grayscale/near-monochrome images keep the
   theme's default color. `bg clear` resets to the theme default; `status` shows the active

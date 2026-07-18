@@ -17,6 +17,19 @@
   --wb-skin-scrim: rgba(8, 10, 22, 0.30);
   --wb-skin-border: rgba(255, 255, 255, 0.10);
   --wb-skin-border-strong: rgba(255, 255, 255, 0.16);
+
+  /* 质感 token：顶部高光光泽、投影层次、统一圆角与过渡节奏 */
+  --wb-skin-gloss: rgba(255, 255, 255, 0.16);
+  --wb-skin-shadow: 0 10px 30px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.18);
+  --wb-skin-shadow-soft: 0 6px 20px rgba(0, 0, 0, 0.18);
+  --wb-skin-radius: 14px;
+  --wb-skin-radius-lg: 18px;
+  /* 内容留白：让玻璃卡片/气泡/输入框不贴边，视觉更透气 */
+  --wb-skin-pad: 14px 16px;
+  --wb-skin-pad-lg: 16px 18px;
+  --wb-skin-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --wb-skin-dur: 240ms;
+  --wb-skin-dur-fast: 160ms;
 }
 
 /* ---- 明色模式变量覆盖 ---------------------------------------------------- */
@@ -27,6 +40,9 @@ body[data-application-name="workbuddy"][data-wb-skin="on"][data-vscode-theme-kin
   --wb-skin-scrim: rgba(255, 255, 255, 0.24);
   --wb-skin-border: rgba(15, 23, 42, 0.08);
   --wb-skin-border-strong: rgba(15, 23, 42, 0.14);
+  --wb-skin-gloss: rgba(255, 255, 255, 0.55);
+  --wb-skin-shadow: 0 10px 28px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.08);
+  --wb-skin-shadow-soft: 0 6px 18px rgba(15, 23, 42, 0.08);
 }
 
 /* ===== 1. 背景层 ========================================================== */
@@ -47,6 +63,10 @@ body[data-application-name="workbuddy"][data-wb-skin="on"] {
   background-repeat: no-repeat;
   /* 任务页时整体压暗一点，减少干扰（见下方 --chat 规则联动） */
   transition: filter 240ms ease;
+  /* 极缓慢的呼吸漂移，让渐变有生命感（reduced-motion 下自动关闭） */
+  transform-origin: center;
+  will-change: transform;
+  animation: wb-skin-bg-drift 42s ease-in-out infinite alternate;
 }
 
 body[data-wb-skin="on"].vscode-light #wb-skin-bg,
@@ -86,16 +106,28 @@ body[data-wb-skin="on"] .sidebar-next {
   -webkit-backdrop-filter: blur(var(--wb-skin-blur)) saturate(var(--wb-skin-saturate));
   backdrop-filter: blur(var(--wb-skin-blur)) saturate(var(--wb-skin-saturate));
   border-right: 1px solid var(--wb-skin-border);
+  box-shadow: var(--wb-skin-shadow-soft);
+  /* 明暗模式切换时玻璃底色/描边平滑过渡 */
+  transition: background-color var(--wb-skin-dur) var(--wb-skin-ease),
+    border-color var(--wb-skin-dur) var(--wb-skin-ease);
 }
 
 body[data-wb-skin="on"] .conversation-list-topbar {
   background: transparent !important;
 }
 
-/* 侧栏条目悬停/选中态更贴玻璃质感 */
+/* 侧栏条目悬停/选中态更贴玻璃质感 + 轻微位移微交互 */
+body[data-wb-skin="on"] .conversation-item,
+body[data-wb-skin="on"] .conversation-agent-card {
+  border-radius: var(--wb-skin-radius);
+  transition: background-color var(--wb-skin-dur-fast) var(--wb-skin-ease),
+    transform var(--wb-skin-dur-fast) var(--wb-skin-ease);
+}
+
 body[data-wb-skin="on"] .conversation-item:hover,
 body[data-wb-skin="on"] .conversation-agent-card:hover {
   background: var(--wb-skin-border) !important;
+  transform: translateX(2px);
 }
 
 /* ===== 4. 顶栏 / 菜单栏 / 窗口控件 ======================================== */
@@ -130,32 +162,117 @@ body[data-wb-skin="on"]:has(.main-content--chat .chat-container:not(.chat-contai
 }
 
 /* ===== 6. 卡片 / 气泡 / 建议卡玻璃化 ====================================== */
-body[data-wb-skin="on"] .conversation-agent-card,
-body[data-wb-skin="on"] [class*="_toolCallContent_"],
-body[data-wb-skin="on"] [class*="_assistantMessageContent_"],
-body[data-wb-skin="on"] [class*="_userMessageText_"] {
+/* 仅对“有内容”的元素套玻璃+留白；:not(:empty) 排除流式渲染中的空占位容器，
+ * 避免出现一排空的玻璃框。*/
+body[data-wb-skin="on"] .conversation-agent-card:not(:empty),
+body[data-wb-skin="on"] [class*="_assistantReasoningContent_"]:not(:empty),
+body[data-wb-skin="on"] [class*="_assistantMessageContent_"]:not(:empty),
+body[data-wb-skin="on"] [class*="_userMessageText_"]:not(:empty) {
   background: var(--wb-skin-card) !important;
   -webkit-backdrop-filter: blur(calc(var(--wb-skin-blur) * 0.7)) saturate(var(--wb-skin-saturate));
   backdrop-filter: blur(calc(var(--wb-skin-blur) * 0.7)) saturate(var(--wb-skin-saturate));
   border: 1px solid var(--wb-skin-border);
-  border-radius: 14px;
+  border-radius: var(--wb-skin-radius);
+  /* 内容留白，避免正文贴着玻璃边缘显得局促 */
+  padding: var(--wb-skin-pad) !important;
+  /* 外投影拉开层次 + 顶部内嵌高光模拟玻璃反光 */
+  box-shadow: var(--wb-skin-shadow), inset 0 1px 0 var(--wb-skin-gloss);
+  transition: background-color var(--wb-skin-dur) var(--wb-skin-ease),
+    border-color var(--wb-skin-dur) var(--wb-skin-ease),
+    box-shadow var(--wb-skin-dur) var(--wb-skin-ease);
+}
+
+/* 消息/工具块进入时的淡入上浮，减少刷屏突兀感 */
+body[data-wb-skin="on"] [class*="_assistantMessageContent_"],
+body[data-wb-skin="on"] [class*="_userMessageText_"],
+body[data-wb-skin="on"] [class*="_assistantReasoningContent_"] {
+  animation: wb-skin-fade-up var(--wb-skin-dur) var(--wb-skin-ease) both;
+}
+
+/* 建议卡悬停微交互：轻微上浮 + 描边提亮 */
+body[data-wb-skin="on"] .conversation-agent-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--wb-skin-border-strong);
+  box-shadow: var(--wb-skin-shadow), inset 0 1px 0 var(--wb-skin-gloss),
+    0 0 0 1px var(--wb-skin-border-strong);
+}
+
+/* 玻璃上的正文加极轻阴影，暗背景下提升描边清晰度（不影响明色模式观感） */
+body[data-wb-skin="on"] [class*="_assistantMessageContent_"],
+body[data-wb-skin="on"] [class*="_userMessageText_"] {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.16);
+}
+
+body[data-wb-skin="on"].vscode-light [class*="_assistantMessageContent_"],
+body[data-wb-skin="on"].vscode-light [class*="_userMessageText_"],
+body[data-wb-skin="on"][data-vscode-theme-kind="vscode-light"] [class*="_assistantMessageContent_"],
+body[data-wb-skin="on"][data-vscode-theme-kind="vscode-light"] [class*="_userMessageText_"] {
+  text-shadow: none;
+}
+
+/* 代码块/内联代码：玻璃上加更实的底衬，保证等宽文本清晰可读 */
+body[data-wb-skin="on"] [class*="_assistantMessageContent_"] pre,
+body[data-wb-skin="on"] [class*="_assistantTextContent_"] pre,
+body[data-wb-skin="on"] [class*="_assistantReasoningContent_"] pre {
+  background: rgba(8, 10, 22, 0.42) !important;
+  border: 1px solid var(--wb-skin-border);
+  border-radius: 10px;
+}
+
+body[data-wb-skin="on"].vscode-light [class*="_assistantMessageContent_"] pre,
+body[data-wb-skin="on"].vscode-light [class*="_assistantTextContent_"] pre,
+body[data-wb-skin="on"][data-vscode-theme-kind="vscode-light"] [class*="_assistantMessageContent_"] pre,
+body[data-wb-skin="on"][data-vscode-theme-kind="vscode-light"] [class*="_assistantTextContent_"] pre {
+  background: rgba(255, 255, 255, 0.66) !important;
 }
 
 /* ===== 7. 输入框 / composer 玻璃化 ======================================== */
-body[data-wb-skin="on"] textarea,
-body[data-wb-skin="on"] [class*="composer"],
-body[data-wb-skin="on"] [class*="Composer"],
-body[data-wb-skin="on"] [class*="inputArea"],
-body[data-wb-skin="on"] [class*="InputArea"] {
+body[data-wb-skin="on"] [class*="_inlineInputContainer_"],
+body[data-wb-skin="on"] [class*="_inputBottom_"],
+body[data-wb-skin="on"] [class*="_editable_5t975"],
+body[data-wb-skin="on"] textarea {
   background: var(--wb-skin-card) !important;
   -webkit-backdrop-filter: blur(calc(var(--wb-skin-blur) * 0.7)) saturate(var(--wb-skin-saturate));
   backdrop-filter: blur(calc(var(--wb-skin-blur) * 0.7)) saturate(var(--wb-skin-saturate));
   border: 1px solid var(--wb-skin-border-strong) !important;
+  border-radius: var(--wb-skin-radius-lg);
+  /* 输入区留白稍大，打字区域更舒展 */
+  padding: var(--wb-skin-pad-lg) !important;
+  box-shadow: var(--wb-skin-shadow-soft), inset 0 1px 0 var(--wb-skin-gloss);
+  transition: border-color var(--wb-skin-dur) var(--wb-skin-ease),
+    box-shadow var(--wb-skin-dur) var(--wb-skin-ease);
+}
+
+/* 聚焦时描边随强调色/高光提亮，给出清晰的输入焦点反馈 */
+body[data-wb-skin="on"] [class*="_inlineInputContainer_"]:focus-within,
+body[data-wb-skin="on"] [class*="_inputBottom_"]:focus-within,
+body[data-wb-skin="on"] [class*="_editable_5t975"]:focus,
+body[data-wb-skin="on"] [class*="_editable_5t975"]:focus-within,
+body[data-wb-skin="on"] textarea:focus {
+  border-color: var(--wb-skin-accent, var(--wb-skin-border-strong)) !important;
+  box-shadow: var(--wb-skin-shadow), inset 0 1px 0 var(--wb-skin-gloss);
 }
 
 /* ===== 8. 滚动条更轻 ====================================================== */
+body[data-wb-skin="on"] ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+body[data-wb-skin="on"] ::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
 body[data-wb-skin="on"] ::-webkit-scrollbar-thumb {
   background-color: var(--wb-skin-border-strong) !important;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background-color var(--wb-skin-dur-fast) var(--wb-skin-ease);
+}
+
+body[data-wb-skin="on"] ::-webkit-scrollbar-thumb:hover {
+  background-color: var(--wb-skin-accent, var(--wb-skin-border-strong)) !important;
 }
 
 /* ===== 9. 弹层/浮层不玻璃化（保证可读、避免与背景糊在一起） =============== */
@@ -165,4 +282,59 @@ body[data-wb-skin="on"] .skill-picker-overlay,
 body[data-wb-skin="on"] [role="dialog"],
 body[data-wb-skin="on"] [role="menu"] {
   /* 留白：不覆盖官方浮层背景，保持可读性 */
+}
+
+/* ===== 10. 关键帧：淡入上浮 / 背景呼吸漂移 =============================== */
+@keyframes wb-skin-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes wb-skin-bg-drift {
+  from {
+    transform: scale(1.04) translate3d(-1.2%, -0.8%, 0);
+  }
+
+  to {
+    transform: scale(1.08) translate3d(1.2%, 0.8%, 0);
+  }
+}
+
+/* ===== 11. 无障碍：尊重系统“减少动态效果”偏好 ========================== */
+/* 关闭一切装饰性动画/过渡，仅保留静态玻璃观感，避免前庭不适。 */
+@media (prefers-reduced-motion: reduce) {
+  body[data-wb-skin="on"] #wb-skin-bg {
+    animation: none !important;
+    transform: none !important;
+  }
+
+  body[data-wb-skin="on"] [class*="_assistantMessageContent_"],
+  body[data-wb-skin="on"] [class*="_userMessageText_"],
+  body[data-wb-skin="on"] [class*="_assistantReasoningContent_"] {
+    animation: none !important;
+  }
+
+  body[data-wb-skin="on"] .conversation-item,
+  body[data-wb-skin="on"] .conversation-agent-card,
+  body[data-wb-skin="on"] .conversation-list,
+  body[data-wb-skin="on"] .sidebar-next,
+  body[data-wb-skin="on"] [class*="_inlineInputContainer_"],
+  body[data-wb-skin="on"] [class*="_inputBottom_"],
+  body[data-wb-skin="on"] [class*="_editable_5t975"],
+  body[data-wb-skin="on"] textarea,
+  body[data-wb-skin="on"] ::-webkit-scrollbar-thumb {
+    transition: none !important;
+  }
+
+  body[data-wb-skin="on"] .conversation-item:hover,
+  body[data-wb-skin="on"] .conversation-agent-card:hover {
+    transform: none !important;
+  }
 }

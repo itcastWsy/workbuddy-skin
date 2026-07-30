@@ -447,6 +447,93 @@ async function cmdDiag() {
   }
 }
 
+// ---- dom: 内置“DevTools 替代”，自助勘察 DOM ----------------------------
+// 新版 WorkBuddy 关掉了开发者工具，无法直接看选择器。本命令通过 CDP
+// 在渲染进程里跑一段勘察脚本：
+//   * 默认：对皮肤关心的选择器做普查（命中数）+ 发现当前页面所有
+//     CSS-module 哈希类前缀（如 _grid_lm2jv_）供定位新壳层；
+//   * --selector <css>：只看指定选择器，对前几个命中元素 dump
+//     tag/id/class/尺寸/背景色/outerHTML 头部。
+function buildDomPayload(selector) {
+  const CENSUS = [
+    "[data-application-name]", "#workbuddy-menubar-container", ".workbuddy-topbar",
+    ".workbuddy-window-controls", ".teams-container", ".teams-content-wrapper",
+    ".teams-main-content", ".main-content", ".main-content--chat", ".main-content--welcome",
+    ".conversation-sidebar", ".conversation-list", ".conversation-list-topbar",
+    ".sidebar-next", ".conversation-item", ".conversation-agent-card",
+    ".chat-container", ".chat-container--welcome", ".expert-center-page",
+    ".plugins-panel", ".welcome-only-wrapper",
+    '[class*="_grid_"]', '[class*="_gridView_"]', '[class*="_gridViewItem_"]',
+    '[class*="_cbChat_"]', '[class*="_assistantMessageContent_"]',
+    '[class*="_userMessageText_"]',
+  ];
+  const sel = selector ? JSON.stringify(String(selector)) : "null";
+  return `(function(){
+  var census=${JSON.stringify(CENSUS)};
+  function bg(el){try{return getComputedStyle(el).backgroundColor;}catch(e){return null;}}
+  var out={version:(document.body&&document.body.getAttribute('data-product-version'))||null,
+           app:(document.body&&document.body.getAttribute('data-application-name'))||null};
+  out.census=census.map(function(s){
+    var n=0; try{n=document.querySelectorAll(s).length;}catch(e){}
+    return {selector:s,count:n};
+  });
+  function bdf(el){try{var c=getComputedStyle(el);return (c.backdropFilter||c.webkitBackdropFilter||'none');}catch(e){return null;}}
+  function flt(el){try{return getComputedStyle(el).filter;}catch(e){return null;}}
+  var sel=${sel};
+  if(sel){
+    var hit=[].slice.call(document.querySelectorAll(sel)).slice(0,6);
+    out.selector=sel; out.matched=document.querySelectorAll(sel).length;
+    out.samples=hit.map(function(el){
+      var r=el.getBoundingClientRect();
+      return {tag:el.tagName,id:el.id||null,cls:String(el.className||'').slice(0,120),
+        bg:bg(el),backdropFilter:bdf(el),filter:flt(el),
+        rect:{w:Math.round(r.width),h:Math.round(r.height)},
+        html:(el.outerHTML||'').slice(0,200)};
+    });
+  } else {
+    // 发现页面上所有 CSS-module 哈希类前缀，按出现次数降序（防版本升级用）
+    var freq={};
+    [].forEach.call(document.querySelectorAll('*'),function(el){
+      String(el.className||'').split(/\\s+/).forEach(function(c){
+        var m=/^(_[A-Za-z]+_)/.exec(c);
+        if(m){freq[m[1]]=(freq[m[1]]||0)+1;}
+      });
+    });
+    out.moduleClassPrefixes=Object.keys(freq).map(function(k){return {prefix:k,count:freq[k]};})
+      .sort(function(a,b){return b.count-a.count;}).slice(0,40);
+    // 主要分栏容器树：从 body 开始浅层遍历有实底色且尺寸大的块
+    var tree=[];
+    (function walk(el,depth){
+      if(depth>4||tree.length>60)return;
+      for(var i=0;i<el.children.length;i++){
+        var c=el.children[i]; var r=c.getBoundingClientRect();
+        if(r.width<120||r.height<80)continue;
+        var bgc=bg(c);
+        tree.push({d:depth,tag:c.tagName,id:c.id||null,
+          cls:String(c.className||'').slice(0,80),
+          bg:bgc,w:Math.round(r.width),h:Math.round(r.height)});
+        walk(c,depth+1);
+      }
+    })(document.body,0);
+    out.tree=tree;
+  }
+  return JSON.stringify(out,null,2);
+})();`;
+}
+
+async function cmdDom() {
+  const selector = args.selector && args.selector !== true ? String(args.selector) : null;
+  const payload = buildDomPayload(selector);
+  const targets = await waitForTargets(10, 400);
+  for (const t of targets) {
+    log("DOM 勘察:", t.title || t.url);
+    try {
+      const raw = await evalInto(t, payload);
+      console.log(raw);
+    } catch (e) { warn("勘察失败:", e.message); }
+  }
+}
+
 async function cmdWatch() {
   const config = buildConfig();
   const payload = buildPayload(config);
@@ -487,6 +574,7 @@ export async function runInjectorMain(argv) {
       case "verify": { const ok = await cmdVerify(); return { status: ok ? 0 : 1 }; }
       case "shot": await cmdShot(); return { status: 0 };
       case "diag": await cmdDiag(); return { status: 0 };
+      case "dom": case "inspect": await cmdDom(); return { status: 0 };
       case "watch": await cmdWatch(); return { status: 0 };
       default: console.error("未知命令:", COMMAND); return { status: 2 };
     }

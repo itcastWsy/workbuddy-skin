@@ -269,15 +269,52 @@ function scanForWorkBuddy(root, matches, depth) {
 }
 
 // ---- process management ----------------------------------------------------
+// 新版 WorkBuddy 一个 WorkBuddy.exe 镜像名下同时挂着：GUI 主进程、它派生的
+// daemon / sidecar / mcp-app、以及承载 CLI agent 会话的 `--serve` 进程，外加
+// --type= 的 Chromium 子进程。换肤只需要重启 *GUI 主进程*，绝不能波及其余的：
+// 一个 `taskkill /IM WorkBuddy.exe /T` 会把 daemon/sidecar/CLI-serve 一起带走
+// （包括可能正在执行本命令的 agent 自己）。因此下面所有停止逻辑都精确锁定
+// GUI 主进程，且从不使用 /T 连带杀子树。
+
+// Windows: 用命令行精确分类。GUI 主进程的命令行去掉 exe 后为空或只剩 `--` flag；
+// daemon/sidecar/CLI-serve 在 exe 后跟一个脚本路径；mcp-app 带 --require；
+// Chromium 子进程带 --type=。
+function winProcesses() {
+  if (!IS_WIN) return [];
+  try {
+    const out = spawnSync("powershell", ["-NoProfile", "-Command",
+      "Get-CimInstance Win32_Process -Filter \"Name='WorkBuddy.exe'\" | Select-Object ProcessId,CommandLine | ConvertTo-Csv -NoTypeInformation"
+    ], { encoding: "utf8", windowsHide: true });
+    const rows = [];
+    for (const line of (out.stdout || "").split(/\r?\n/)) {
+      const m = line.match(/^"(\d+)","?(.*?)"?$/);
+      if (!m) continue;
+      const pid = Number(m[1]);
+      if (!pid) continue;
+      const cmd = (m[2] || "").replace(/""/g, '"');
+      rows.push({ pid, cmd });
+    }
+    return rows;
+  } catch { return []; }
+}
+
+// 判定一条命令行是否属于 GUI 主进程（唯一可安全重启的目标）。
+function isGuiMainCmd(cmd) {
+  if (!cmd) return false;
+  if (/--type=/.test(cmd)) return false;          // Chromium 子进程
+  if (/--require\b/.test(cmd)) return false;       // mcp-app
+  if (/--serve\b/.test(cmd)) return false;         // CLI agent 会话
+  // 去掉开头的 exe（带引号或不带），看剩余是否还有一个非 -- 开头的位置参数
+  // （daemon/sidecar/CLI 在 exe 后跟脚本路径），有则不是 GUI 主进程。
+  const rest = cmd.replace(/^\s*("[^"]*"|\S+)\s*/, "");
+  const positional = rest.split(/\s+/).filter((t) => t && !t.startsWith("--"));
+  return positional.length === 0;
+}
+
 export function listProcesses() {
   try {
     if (IS_WIN) {
-      const out = spawnSync("tasklist", ["/FI", "IMAGENAME eq WorkBuddy.exe", "/FO", "CSV", "/NH"], { encoding: "utf8" });
-      const lines = (out.stdout || "").split(/\r?\n/).filter((l) => /WorkBuddy\.exe/i.test(l));
-      return lines.map((l) => {
-        const m = l.split('","');
-        return { pid: Number((m[1] || "").replace(/\D/g, "")) };
-      }).filter((p) => p.pid);
+      return winProcesses().map((p) => ({ pid: p.pid }));
     } else {
       const out = spawnSync("pgrep", ["-x", "WorkBuddy"], { encoding: "utf8" });
       return (out.stdout || "").split(/\s+/).filter(Boolean).map((pid) => ({ pid: Number(pid) }));
@@ -285,25 +322,39 @@ export function listProcesses() {
   } catch { return []; }
 }
 
-export function stopProcesses() {
-  const procs = listProcesses();
-  if (!procs.length) return;
-  info(`Stopping running WorkBuddy (${procs.length} process(es))...`);
+// 只返回 GUI 主进程 PID。这是唯一允许停止/重启的进程。
+export function listMainGuiProcesses() {
+  if (IS_WIN) {
+    return winProcesses().filter((p) => isGuiMainCmd(p.cmd)).map((p) => ({ pid: p.pid }));
+  }
+  // mac/linux: `WorkBuddy` 主进程与 Helper 分属不同进程名，pgrep -x 已排除 Helper。
   try {
-    if (IS_WIN) {
-      spawnSync("taskkill", ["/IM", "WorkBuddy.exe", "/T"], { stdio: "ignore" });
-    } else {
-      spawnSync("pkill", ["-x", "WorkBuddy"], { stdio: "ignore" });
-    }
-  } catch { /* ignore */ }
-  // give it a moment, then force if needed
-  const deadline = Date.now() + 4000;
-  while (listProcesses().length && Date.now() < deadline) { sleepSync(200); }
-  if (listProcesses().length) {
+    const out = spawnSync("pgrep", ["-x", "WorkBuddy"], { encoding: "utf8" });
+    return (out.stdout || "").split(/\s+/).filter(Boolean).map((pid) => ({ pid: Number(pid) }));
+  } catch { return []; }
+}
+
+// 只停止 GUI 主进程，逐个按 PID 结束，绝不使用 /T（否则连带杀 daemon/sidecar/
+// CLI-serve 子树，会把正在跑本命令的 agent 一起杀掉）。
+export function stopProcesses() {
+  const mains = listMainGuiProcesses();
+  if (!mains.length) return;
+  info(`Stopping WorkBuddy GUI main process only (${mains.length}); daemon/CLI/sidecar left untouched...`);
+  for (const { pid } of mains) {
     try {
-      if (IS_WIN) spawnSync("taskkill", ["/IM", "WorkBuddy.exe", "/F", "/T"], { stdio: "ignore" });
-      else spawnSync("pkill", ["-9", "-x", "WorkBuddy"], { stdio: "ignore" });
+      if (IS_WIN) spawnSync("taskkill", ["/PID", String(pid)], { stdio: "ignore" }); // 注意：无 /T
+      else process.kill(pid);
     } catch { /* ignore */ }
+  }
+  const deadline = Date.now() + 4000;
+  while (listMainGuiProcesses().length && Date.now() < deadline) { sleepSync(200); }
+  if (listMainGuiProcesses().length) {
+    for (const { pid } of listMainGuiProcesses()) {
+      try {
+        if (IS_WIN) spawnSync("taskkill", ["/PID", String(pid), "/F"], { stdio: "ignore" }); // 仍无 /T
+        else process.kill(pid, "SIGKILL");
+      } catch { /* ignore */ }
+    }
     sleepSync(300);
   }
 }
@@ -351,6 +402,62 @@ export function debugArgs(port) {
   ];
 }
 
+// ---- CDP 附着：官方内置环境变量（新版首选方式）----------------------------
+// 新版 WorkBuddy 主进程内置了开关：设置 WORKBUDDY_REMOTE_DEBUGGING_PORT=<port>
+// 后，它会在 app.whenReady() 之前自行 appendSwitch("remote-debugging-port") +
+// ("remote-allow-origins", "*")，暴露一个回环 CDP 端点。相比改快捷方式 .lnk，
+// 这种方式：跨平台、扛得住 WorkBuddy 自更新覆盖、不受单实例锁影响、无需管理员。
+// 唯一代价：设置后需要用户完整退出并重开一次 WorkBuddy 才生效。
+export const CDP_ENV_VAR = "WORKBUDDY_REMOTE_DEBUGGING_PORT";
+
+// 读取当前用户级持久化的 CDP 端口环境变量（跨会话）。未设置返回 null。
+export function readPersistedCdpPort() {
+  if (IS_WIN) {
+    try {
+      const out = spawnSync("powershell", ["-NoProfile", "-Command",
+        `[Environment]::GetEnvironmentVariable('${CDP_ENV_VAR}','User')`
+      ], { encoding: "utf8", windowsHide: true });
+      const v = (out.stdout || "").trim();
+      return /^\d+$/.test(v) ? Number(v) : null;
+    } catch { return null; }
+  }
+  // mac/linux: 读进程可见的环境变量（由 shell rc / launchd plist 提供）
+  const v = (process.env[CDP_ENV_VAR] || "").trim();
+  return /^\d+$/.test(v) ? Number(v) : null;
+}
+
+// 把 CDP 端口写成用户级持久化环境变量。Windows 用 setx（写注册表 HKCU\Environment，
+// 无需管理员，新开的进程可见）。mac/linux 无统一持久化机制，返回 shell 片段让用户自行写入。
+export function persistCdpPort(port) {
+  if (IS_WIN) {
+    // setx 有 1024 字符限制且会追加换行到 stdout；这里值很短无碍。
+    const r = spawnSync("setx", [CDP_ENV_VAR, String(port)], { encoding: "utf8", windowsHide: true });
+    if (r.status !== 0) throw new Error(`setx 写入失败：${(r.stderr || r.stdout || "").trim()}`);
+    // 让本进程后续读取也能立即看到
+    process.env[CDP_ENV_VAR] = String(port);
+    return { supported: true, persisted: true, port };
+  }
+  const line = IS_MAC
+    ? `launchctl setenv ${CDP_ENV_VAR} ${port}   # 或写入 ~/.zshrc: export ${CDP_ENV_VAR}=${port}`
+    : `export ${CDP_ENV_VAR}=${port}   # 写入 ~/.bashrc 或 ~/.profile`;
+  return { supported: false, persisted: false, port, hint: line };
+}
+
+// 清除持久化的 CDP 端口环境变量（还原用）。
+export function clearPersistedCdpPort() {
+  if (IS_WIN) {
+    // setx 无法删除，只能用 REG delete 移除 HKCU\Environment 下的值。
+    const r = spawnSync("reg", ["delete", "HKCU\\Environment", "/F", "/V", CDP_ENV_VAR], { encoding: "utf8", windowsHide: true });
+    delete process.env[CDP_ENV_VAR];
+    // 值本就不存在时 reg 返回非 0，视为已清除，不报错。
+    return { supported: true, cleared: true };
+  }
+  const line = IS_MAC
+    ? `launchctl unsetenv ${CDP_ENV_VAR}   # 并从 ~/.zshrc 移除对应 export`
+    : `从 ~/.bashrc / ~/.profile 移除 export ${CDP_ENV_VAR}`;
+  return { supported: false, cleared: false, hint: line };
+}
+
 // 启动前校验：自动定位（尤其是全盘扫描/Administrator 账户）可能落到一个并不是
 // 真正 WorkBuddy.exe、甚至根本不可执行的路径上，直接 spawn 会抛看不懂的 EFTYPE。
 // 这里先把明显不合法的路径挡掉，给出一句能照做的中文引导。
@@ -375,7 +482,7 @@ function assertLaunchable(exe) {
 
 // 实际 spawn；把同步/异步的启动失败都翻成中文。detached+unref 让 WorkBuddy 脱离
 // 本进程独立存活，因此额外挂一个 'error' 监听，避免异步失败变成未捕获异常直接崩溃。
-function launchGuarded(exe, extraArgs) {
+function launchGuarded(exe, extraArgs, extraEnv = null) {
   assertLaunchable(exe);
   const hint = '请用菜单「7) 指定 WorkBuddy 位置」重新指定真正的 WorkBuddy 程序，' +
     '或命令行加 --exe "完整路径"。';
@@ -393,7 +500,9 @@ function launchGuarded(exe, extraArgs) {
     return `无法启动 WorkBuddy${code}：${e && e.message ? e.message : e}\n${hint}`;
   };
   try {
-    const child = spawn(exe, extraArgs, { detached: true, stdio: "ignore" });
+    const opts = { detached: true, stdio: "ignore" };
+    if (extraEnv) opts.env = { ...process.env, ...extraEnv };
+    const child = spawn(exe, extraArgs, opts);
     child.on("error", (e) => { err(explain(e)); }); // 异步失败：不让它变成未捕获异常
     child.unref();
   } catch (e) {
@@ -404,6 +513,13 @@ function launchGuarded(exe, extraArgs) {
 export function launchDebug(exe, port) {
   info(`Launching WorkBuddy with remote debugging on 127.0.0.1:${port} ...`);
   launchGuarded(exe, debugArgs(port));
+}
+
+// 用官方环境变量开端口的方式启动（不依赖命令行 flag，不受单实例锁影响）。
+// 用于 apply 需要主动拉起 WorkBuddy 的场景；持久化附着则交给 persistCdpPort。
+export function launchDebugViaEnv(exe, port) {
+  info(`Launching WorkBuddy with ${CDP_ENV_VAR}=${port} (official env switch) ...`);
+  launchGuarded(exe, [], { [CDP_ENV_VAR]: String(port) });
 }
 
 export function launchNormal(exe) {

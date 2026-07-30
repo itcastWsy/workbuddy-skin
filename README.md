@@ -17,7 +17,7 @@
 - **明暗自适应**：跟随 WorkBuddy 的浅色 / 暗色主题自动切换配色。
 - **首页出氛围，任务页更安静**：对话页自动加一层可读性遮罩并轻微压暗背景。
 - **多主题一键切换**：内置 5 套预设，可实时切换（不用重启 WorkBuddy）。
-- **可选零重启**：`autostart` 把快捷方式改成自带调试端口，之后换肤永远热注入、不再重启。
+- **可选零重启**：`enable-cdp` 持久化环境变量（或 `autostart` 改快捷方式），之后换肤永远热注入、不再重启。
 - **可还原**：一条命令移除皮肤、干净重启 WorkBuddy。
 - **相对安全**：调试端口只绑 `127.0.0.1`，不改任何官方文件。
 
@@ -25,7 +25,19 @@
 
 ---
 
-## 下载安装（普通用户，推荐）
+## 快速上手（3 步）
+
+| 步骤 | 操作 |
+|---|---|
+| **1. 下载** | 到 [Releases](https://github.com/itcastWsy/workbuddy-skin/releases) 页面下载 `workbuddy-skin-windows-x64.exe`（或对应平台的文件） |
+| **2. 双击运行** | 选择 `1) 应用皮肤` —— 会自动启动 WorkBuddy 并注入默认「极光玻璃」主题 |
+| **3. 持久化（可选）** | 选择 `7) 持久化调试端口`，之后每次开机换肤不再需要重启 WorkBuddy |
+
+> 不需要安装 Node.js、不写注册表、不改官方文件。删除 exe 即卸载。
+
+---
+
+## 下载安装（详细）
 
 **不需要装 Node，也不用敲命令。** 只要你装了 WorkBuddy 就能用。
 
@@ -51,6 +63,7 @@
      4) 清除壁纸（恢复主题渐变）
      5) 还原为官方外观
      6) 开机自启换肤（给快捷方式加调试端口）   # 仅 Windows
+     7) 持久化调试端口 (enable-cdp)
      0) 退出
    ```
 
@@ -113,6 +126,8 @@ workbuddy-skin <command> [options]
 | `portrait set <image>` | 给带立绘位的主题（如 portrait-fan）放一张人物立绘（自动持久化） |
 | `portrait clear` | 移除立绘 |
 | `autostart [undo]` | 改写 WorkBuddy 快捷方式使其自带调试端口，之后换肤永不重启（`undo` 还原） |
+| `enable-cdp [undo]` | 持久化环境变量 `WORKBUDDY_REMOTE_DEBUGGING_PORT`，每次 WorkBuddy 启动自动开启调试端口（推荐，优于 autostart；`undo` 移除） |
+| `dom [--selector <css>]` | 内置 DevTools 替代——实时勘察 WorkBuddy DOM 结构、节点属性（新版无开发者工具时排障用） |
 | `status` | 查看当前状态与皮肤是否生效 |
 
 `apply` 选项：`--theme <id|path>`、`--bg <image>`、`--port <n>`、`--exe <path>`、`--restart`、`--watch`、`--no-launch`。
@@ -152,23 +167,30 @@ workbuddy-skin bg clear
 - **自动主题色**：`bg set` 会从壁纸提取主色，把玻璃描边/高光染成相近色调，零操作；`status` 可看当前 `Accent`，`bg clear` 恢复主题默认色。灰阶/近单色图不改色。
 - 想连玻璃风格一起换，才用 `theme use <id>`；只换图片，永远用 `bg`。
 
-### 让换肤永不重启 WorkBuddy（autostart）
+### 让换肤永不重启 WorkBuddy（enable-cdp / autostart）
 
 换肤靠 CDP 注入，需要 WorkBuddy 带一个只绑 `127.0.0.1` 的调试端口。而 Chromium 的
 `--remote-debugging-port` **只能在启动那一刻传**，没法给一个已经裸启动的进程事后补上——
 所以如果 WorkBuddy 正开着且没端口，第一次上皮肤就得重启它一次。
 
-`autostart` 一劳永逸解决这件事：它把 WorkBuddy 的快捷方式（桌面 / 开始菜单 / 任务栏）
-改成自带调试端口，之后每次开机/点击启动它都天然带端口，换肤全程**热注入、零重启**。
+**推荐方案：`enable-cdp`**（v1.3.0 新增）—— 持久化一个用户级环境变量，WorkBuddy 启动时
+自动读取，无需修改快捷方式，跨版本升级也不会丢失：
+
+```bash
+workbuddy-skin enable-cdp         # 持久化调试端口环境变量
+workbuddy-skin enable-cdp undo    # 移除环境变量
+```
+
+**备选方案：`autostart`** —— 改写快捷方式（桌面 / 开始菜单 / 任务栏）加上调试端口参数：
 
 ```bash
 workbuddy-skin autostart          # 给快捷方式加上调试端口标记
 workbuddy-skin autostart undo     # 还原快捷方式（去掉标记）
 ```
 
-- 幂等：重复运行只会跳过已处理的快捷方式。
-- 执行后**彻底关掉再重开一次 WorkBuddy**，新标记才会生效。
-- 全员范围（所有用户的开始菜单）的快捷方式可能需要管理员权限，普通终端会跳过并提示。
+- 两者任选其一即可，`enable-cdp` 更简单、兼容 WorkBuddy 自动更新。
+- 幂等：重复运行只会跳过已处理的项目。
+- 执行后**彻底关掉再重开一次 WorkBuddy**，新设置才会生效。
 - 目前 Windows 全自动；macOS / Linux 会打印出需要手动附加的启动参数。
 
 ---
@@ -260,8 +282,8 @@ node scripts/injector.mjs diag --port 9345
 
 ```bash
 # 版本号建议同步改一下 package.json 的 "version"
-git tag v1.2.0
-git push origin v1.2.0
+git tag v1.3.0
+git push origin v1.3.0
 ```
 
 - 工作流定义见 [`.github/workflows/release.yml`](.github/workflows/release.yml)，触发条件为推送 `v*` 形式的 tag。

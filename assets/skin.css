@@ -144,8 +144,10 @@ body[data-wb-skin="on"] #workbuddy-menubar-container {
 }
 
 /* ===== 5. 任务/对话页：加一层可读性 scrim（首页不加，保持氛围感） ========= */
-/* 首页 = .main-content--welcome / .chat-container--welcome，保持通透。 */
-body[data-wb-skin="on"] .main-content--chat .chat-container:not(.chat-container--welcome)::before {
+/* 首页 = .chat-container--welcome，保持通透。新版（5.3.5+）已去掉外层的
+ * .main-content--chat 壳（现在是 teams-container → _grid_ → _gridView_），因此
+ * 直接用 .chat-container:not(.chat-container--welcome) 作为“已进入任务页”的信号。*/
+body[data-wb-skin="on"] .chat-container:not(.chat-container--welcome)::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -157,7 +159,7 @@ body[data-wb-skin="on"] .main-content--chat .chat-container:not(.chat-container-
 }
 
 /* 任务页时把背景层轻微压暗，减少与正文争夺注意力 */
-body[data-wb-skin="on"]:has(.main-content--chat .chat-container:not(.chat-container--welcome)) #wb-skin-bg {
+body[data-wb-skin="on"]:has(.chat-container:not(.chat-container--welcome)) #wb-skin-bg {
   filter: brightness(0.82) saturate(1.05);
 }
 
@@ -251,6 +253,35 @@ body[data-wb-skin="on"] [class*="_editable_5t975"]:focus-within,
 body[data-wb-skin="on"] textarea:focus {
   border-color: var(--wb-skin-accent, var(--wb-skin-border-strong)) !important;
   box-shadow: var(--wb-skin-shadow), inset 0 1px 0 var(--wb-skin-gloss);
+}
+
+/* ===== 7b. 首页/新建任务：中央空状态大面板不玻璃化 ======================= */
+/* 首页时 composer 容器会同时挂 _emptyStateContainer_ 且撑满中央（~1008x1306），
+ * section 7 的玻璃会把它整块糊成磨砂（用户反馈：太丑）。这里针对“首页空状态”
+ * 容器取消玻璃：透明、无模糊、无描边/投影/圆角。任务页 composer 不含
+ * _emptyStateContainer_，观感完全不受影响；容器内真正的输入框仍保留自身玻璃。*/
+body[data-wb-skin="on"] .chat-container--welcome [class*="_emptyStateContainer_"],
+body[data-wb-skin="on"] .main-content--welcome [class*="_emptyStateContainer_"] {
+  background: transparent !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+/* ===== 7c. composer 按钮行：修复 “+” 浮层被附件区压住 ===================== */
+/* section 7 给 _inputBottom_ 加了 backdrop-filter，而 backdrop-filter 会强制创建
+ * stacking context，把按钮行内的 “+” 下拉浮层（_menu_，absolute z-index:1100）就地
+ * 困住。原生 _inputBottom_ 是 static/z-auto（不是 SC），浮层的 1100 本可冒到
+ * _mainArea_（relative z-index:16）那层竞争，从而压住同层的附件/文本区（z-index:16）。
+ * 被困之后 _inputBottom_ 以 static 身份排在已定位兄弟之下，浮层反被附件 chip 盖住。
+ * 这里把 _inputBottom_ 自身抬到 16 之上，让它连同内部浮层一起盖过附件区，恢复无皮肤
+ * 时的层级。影响范围严格锁在 _mainArea_ 内（它自己就是 SC，z-index 泄不到弹窗/toast
+ * 层）；浮层的定位基准是其父级 _container_（已是 relative），故此处不产生位移。*/
+body[data-wb-skin="on"] [class*="_inputBottom_"] {
+  position: relative;
+  z-index: 30;
 }
 
 /* ===== 8. 滚动条更轻 ====================================================== */

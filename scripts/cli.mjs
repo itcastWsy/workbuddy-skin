@@ -220,39 +220,48 @@ async function cmdApply() {
   }
 
   // resolve port + detect existing debug session
+  // 优先级：显式 --port > 持久化环境变量端口 > state 记录的活端口 > 自动从 9345 找空。
   let port = Number(args.port || 0);
   if (port <= 0) {
-    if (state && state.port && await P.isPortReachable(Number(state.port))) port = Number(state.port);
+    const envPort = P.readPersistedCdpPort();
+    if (envPort && await P.isPortReachable(envPort)) port = envPort;
+    else if (envPort) port = envPort;
+    else if (state && state.port && await P.isPortReachable(Number(state.port))) port = Number(state.port);
     else port = await P.findFreePort(9345);
   }
   const debugLive = await P.isPortReachable(port);
   const running = P.listProcesses();
+  const envAttached = P.readPersistedCdpPort() === port;
 
   if (!noLaunch) {
     if (debugLive) {
       P.info(`Existing debug session on port ${port}; re-injecting without restart.`);
     } else if (running.length) {
+      // WorkBuddy 正在跑但端口没开。首选：持久化官方环境变量，只重启 GUI 主进程
+      // （不波及 daemon/sidecar/CLI agent）。这一步自动修好了旧版的自毁行为。
       let doRestart = !!args.restart;
       if (!doRestart && MENU_RL) {
-        const ans = (await ask(MENU_RL, "\n检测到 WorkBuddy 正在运行，但没有开启调试端口，需要重启它才能换肤。现在重启并应用吗？(y/n)：")).toLowerCase();
+        const ans = (await ask(MENU_RL, "\n检测到 WorkBuddy 正在运行，但没有开启调试端口。现在重启主窗口并应用吗？（仅重启界面，不影响后台任务）(y/n)：")).toLowerCase();
         doRestart = ans === "y" || ans === "yes" || ans === "是";
       }
       if (!doRestart) {
         if (MENU_RL) {
           P.warn("已取消：WorkBuddy 未重启，皮肤未应用。");
-          P.info("你可以先手动关闭 WorkBuddy 再来换肤；Windows 上也可用菜单「6) 开机自启换肤」，之后无需每次重启。");
+          P.info("推荐先用菜单「6) 开启持久换肤」写入环境变量，之后重开 WorkBuddy 就会自带调试端口，无需每次重启。");
           return;
         }
-        P.warn("WorkBuddy is running WITHOUT a debug port; it must restart to apply the skin.");
-        P.warn("Re-run with --restart to restart automatically.");
+        P.warn("WorkBuddy is running WITHOUT a debug port; the GUI window must restart to apply the skin.");
+        P.info(`推荐：先跑 "workbuddy-skin enable-cdp" 写入环境变量，重开 WorkBuddy 后换肤就会热生效、不需重启。`);
+        P.warn("或重新运行并加 --restart 自动重启 GUI 主窗口（不会影响后台 daemon/CLI）。");
         process.exit(3);
       }
       P.stopProcesses();
       if (!(await P.isPortFree(port))) port = await P.findFreePort(port);
-      P.launchDebug(exe, port);
+      // 用官方环境变量方式拉起（不受单实例锁影响）；若已持久化相同端口则普通启动即可。
+      if (envAttached) P.launchNormal(exe); else P.launchDebugViaEnv(exe, port);
     } else {
       if (!(await P.isPortFree(port))) port = await P.findFreePort(port);
-      P.launchDebug(exe, port);
+      if (envAttached) P.launchNormal(exe); else P.launchDebugViaEnv(exe, port);
     }
   }
 
@@ -291,7 +300,7 @@ async function cmdApply() {
   if (MENU_RL && v.status === 0) {
     const st = P.readState();
     if (!(st && st.autostart)) {
-      if (P.IS_WIN) P.info("提示：WorkBuddy 重启或自动更新后皮肤会消失。想每次自动生效，请在菜单选「6) 开机自启换肤」。");
+      if (P.IS_WIN) P.info("提示：WorkBuddy 重启或自动更新后皮肤会消失。想每次自动生效，请在菜单选「6) 开启持久换肤」。");
       else P.info("提示：WorkBuddy 重启或自动更新后皮肤会消失，重新打开后再运行一次「应用皮肤」即可。");
     }
   }
@@ -407,6 +416,26 @@ function cmdPortrait() {
   throw new Error('Usage: portrait set <image> | portrait clear');
 }
 
+// ---- dom / inspect: 内置 DevTools 替代——自助勘察当前 WorkBuddy 的 DOM --------
+// 新版关了开发者工具，用本命令隔着 CDP 看选择器是否还在、发现新壳层。
+//   workbuddy-skin dom                 # 选择器普查 + 发现哈希类前缀 + 容器树
+//   workbuddy-skin dom --selector ".chat-container"   # 只看指定选择器
+async function cmdDom() {
+  const state = P.readState();
+  let port = Number(args.port || 0);
+  if (port <= 0) {
+    port = P.readPersistedCdpPort() || Number(state && state.port) || 0;
+  }
+  if (port <= 0) { P.err("未知调试端口。先跑 apply / enable-cdp，或用 --port <n> 指定。"); process.exit(1); }
+  if (!(await P.isPortReachable(port))) {
+    P.err(`端口 ${port} 没有监听——WorkBuddy 未开调试端口。先跑 "workbuddy-skin enable-cdp" 并重开 WorkBuddy。`);
+    process.exit(3);
+  }
+  const injArgs = ["dom", "--port", String(port)];
+  if (args.selector && args.selector !== true) injArgs.push("--selector", String(args.selector));
+  await P.runInjector(injArgs);
+}
+
 async function cmdStatus() {
   const state = P.readState();
   console.log("WorkBuddy Skin — status");
@@ -427,6 +456,51 @@ async function cmdStatus() {
   }
 }
 
+// ---- enable-cdp: 持久化官方调试端口环境变量（新版首选附着方式）-------
+// setx WORKBUDDY_REMOTE_DEBUGGING_PORT=<port>。一次写入永久生效：之后任何方式
+// （开始菜单/托盘/快捷方式）启动的 WorkBuddy 都会自带回环调试端口，换肤热注入
+// 无需重启；不改官方文件、不改快捷方式、不受自更新影响。
+async function cmdEnableCdp() {
+  const undo = args.undo === true || (SUB && ["undo", "off", "disable"].includes(String(SUB).toLowerCase()));
+  const state = P.readState();
+
+  if (undo) {
+    const res = P.clearPersistedCdpPort();
+    P.saveState({ autostart: false });
+    if (res.supported) {
+      P.ok(`已关闭持久换肤：移除环境变量 ${P.CDP_ENV_VAR}。`);
+      P.info("已打开的 WorkBuddy 仍保留当前端口；下次完全重开后不再自带调试端口。");
+    } else {
+      P.warn(`当前系统需手动移除：`);
+      console.log(`    ${res.hint}`);
+    }
+    return;
+  }
+
+  let port = Number(args.port || (state && state.port) || 0);
+  if (port <= 0) port = P.readPersistedCdpPort() || 9345;
+
+  let res;
+  try { res = P.persistCdpPort(port); }
+  catch (e) { P.err(`写入环境变量失败：${e.message}`); process.exit(1); }
+
+  if (res.supported) {
+    P.saveState({ autostart: true, autostartPort: port, port });
+    P.ok(`已开启持久换肤：${P.CDP_ENV_VAR}=${port}（已写入用户环境变量）。`);
+    const live = await P.isPortReachable(port);
+    if (live) {
+      P.info(`端口 ${port} 已在监听——当前 WorkBuddy 已可直接换肤：跑 "workbuddy-skin apply"。`);
+    } else {
+      P.info("注意：环境变量对“新启动”的进程才生效。请完整退出并重开一次 WorkBuddy（托盘右键退出），之后换肤就会热生效。");
+      P.info(`重开后跑：workbuddy-skin apply`);
+    }
+  } else {
+    P.warn(`当前系统（${process.platform}）需手动写入以下环境变量，然后重开 WorkBuddy：`);
+    console.log(`    ${res.hint}`);
+  }
+}
+
+// ---- autostart: 兼容旧版“打补丁到快捷方式”的自启方式（Windows only）--------
 async function cmdAutostart() {
   const undo = args.undo === true || (SUB && ["undo", "off"].includes(String(SUB).toLowerCase()));
   const state = P.readState();
@@ -498,9 +572,15 @@ Commands:
   bg clear                     back to the theme's gradient
   portrait set <image>         put a portrait cutout into a portrait theme (persists)
   portrait clear               remove the portrait slot image
-  autostart [undo]             patch WorkBuddy shortcuts to self-open the debug
-                               port (so skinning never restarts the app)
+  enable-cdp [undo]            persist WORKBUDDY_REMOTE_DEBUGGING_PORT so every
+                               WorkBuddy launch self-opens the loopback debug
+                               port (recommended; survives app self-updates)
+  autostart [undo]             (legacy) patch WorkBuddy shortcuts to self-open
+                               the debug port; prefer enable-cdp instead
   status                       show current state
+  dom [--selector <css>]       inspect the live WorkBuddy DOM via CDP (a built-in
+                               DevTools substitute: selector census + new-shell
+                               discovery; --selector to dump specific nodes)
   help                         this message
 
 apply options:
@@ -561,7 +641,7 @@ async function interactiveMenu() {
       console.log("  3) 设置壁纸（输入本地图片路径）");
       console.log("  4) 清除壁纸（恢复主题渐变）");
       console.log("  5) 还原为官方外观");
-      if (P.IS_WIN) console.log("  6) 开机自启换肤（给快捷方式加调试端口）");
+      if (P.IS_WIN) console.log("  6) 开启持久换肤（写入环境变量，无需重启即可换肤）");
       console.log("  7) 指定 WorkBuddy 位置（自动找不到时手动指定）");
       console.log("  0) 退出");
       const c = await ask(rl, "\n请输入序号后回车：");
@@ -584,7 +664,7 @@ async function interactiveMenu() {
         }
         else if (c === "4") { if (await ensureExeInteractive(rl)) { P.saveState({ background: null, accent: null }); await cmdApply(); } await pause(); }
         else if (c === "5") { await cmdRestore(); await pause(); }
-        else if (c === "6" && P.IS_WIN) { await cmdAutostart(); await pause(); }
+        else if (c === "6" && P.IS_WIN) { await cmdEnableCdp(); await pause(); }
         else if (c === "7") { await setExeInteractive(rl); await pause(); }
         else if (c === "0" || c.toLowerCase() === "q") { break; }
         else { console.log("无效的选项。"); }
@@ -629,6 +709,8 @@ async function softExit(code) {
       case "theme": await cmdTheme(); break;
       case "bg": case "background": await cmdBg(); break;
       case "portrait": await cmdPortrait(); break;
+      case "enable-cdp": case "cdp": await cmdEnableCdp(); break;
+      case "dom": case "inspect": await cmdDom(); break;
       case "autostart": await cmdAutostart(); break;
       case "status": await cmdStatus(); break;
       case "help": case "--help": case "-h": cmdHelp(); break;

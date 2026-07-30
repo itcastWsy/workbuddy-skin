@@ -9,6 +9,9 @@ _*
 wb-skin-shot.png
 wb-shot.png
 
+# local scratch dir: extracted asar, isolated-instance sandbox, throwaway probes
+.tmp/
+
 # logs
 *.log
 

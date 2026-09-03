@@ -302,6 +302,20 @@ body[data-wb-skin="on"] .main-content--welcome [class*="_emptyStateContainer_"] 
   border-radius: 0 !important;
 }
 
+/* ===== 7d. 输入工具条与侧栏分区头的原生实底玻璃化 ========================== */
+/* cr-input-toolbar__right（快速/语音/发送按钮组的白色胶囊）、collapsible-section-header
+ * （空间/收藏等分区行）、conversation-section-label（分区标签行）均为应用原生实底
+ * （#fff / #f2f2f2），透明档位下与整体玻璃脱节。按钮组直接透明（输入容器已玻璃化），
+ * 分区行透明，可点击的分区头用卡片玻璃保持可点暗示。 */
+body[data-wb-skin="on"] .cr-input-toolbar__right,
+body[data-wb-skin="on"] .conversation-section-label {
+  background: transparent !important;
+}
+
+body[data-wb-skin="on"] .collapsible-section-header {
+  background: var(--wb-skin-card) !important;
+}
+
 /* ===== 7c. composer 按钮行：修复 “+” 浮层被附件区压住 ===================== */
 /* section 7 给 _inputBottom_ 加了 backdrop-filter，而 backdrop-filter 会强制创建
  * stacking context，把按钮行内的 “+” 下拉浮层（_menu_，absolute z-index:1100）就地

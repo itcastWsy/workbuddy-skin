@@ -178,13 +178,25 @@ body[data-wb-skin="on"]:has(.conversation-shell .cr-message-list) #wb-skin-bg {
   filter: brightness(0.82) saturate(1.05);
 }
 
+/* 浅色模式反向调节：正文是深色文字，壁纸不能压暗（暗区会吃掉对比度），
+ * 改为轻微提亮 + 降饱和，把壁纸推向“明亮淡彩”的浅色底。 */
+body[data-wb-skin="on"].vscode-light:has(.chat-container:not(.chat-container--welcome)) #wb-skin-bg,
+body[data-wb-skin="on"][data-vscode-theme-kind="vscode-light"]:has(.chat-container:not(.chat-container--welcome)) #wb-skin-bg,
+body[data-wb-skin="on"].vscode-light:has(.conversation-shell .cr-message-list) #wb-skin-bg,
+body[data-wb-skin="on"][data-vscode-theme-kind="vscode-light"]:has(.conversation-shell .cr-message-list) #wb-skin-bg {
+  filter: brightness(1.10) saturate(0.85);
+}
+
 /* ===== 6. 卡片 / 气泡 / 建议卡玻璃化 ====================================== */
 /* 仅对“有内容”的元素套玻璃+留白；:not(:empty) 排除流式渲染中的空占位容器，
  * 避免出现一排空的玻璃框。*/
 body[data-wb-skin="on"] .conversation-agent-card:not(:empty),
 body[data-wb-skin="on"] [class*="_assistantReasoningContent_"]:not(:empty),
 body[data-wb-skin="on"] [class*="_assistantMessageContent_"]:not(:empty),
-body[data-wb-skin="on"] [class*="_userMessageText_"]:not(:empty) {
+body[data-wb-skin="on"] [class*="_userMessageText_"]:not(:empty),
+/* v5.5.x 消息块：cr-agent 是一条代理回复的整体容器（头像+cr-markdown 正文），
+ * 不玻璃化时正文直接浮在壁纸上，浅色模式下对比度不够 */
+body[data-wb-skin="on"] .cr-agent:not(:empty) {
   background: var(--wb-skin-card) !important;
   -webkit-backdrop-filter: blur(calc(var(--wb-skin-blur) * 0.7)) saturate(var(--wb-skin-saturate));
   backdrop-filter: blur(calc(var(--wb-skin-blur) * 0.7)) saturate(var(--wb-skin-saturate));

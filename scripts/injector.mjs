@@ -215,8 +215,8 @@ body[data-wb-skin="${MARKER}"]{
 }
 body[data-wb-skin="${MARKER}"].vscode-light,
 body[data-wb-skin="${MARKER}"][data-vscode-theme-kind="vscode-light"]{
-  --wb-skin-panel:rgba(${tintLight},${num(g.panelOpacityLight, 0.38)});
-  --wb-skin-card:rgba(${tintLight},${num(g.cardOpacityLight, 0.42)});
+  --wb-skin-panel:rgba(${tintLight},${num(g.panelOpacityLight, 0.30)});
+  --wb-skin-card:rgba(${tintLight},${num(g.cardOpacityLight, 0.32)});
   --wb-skin-scrim:rgba(${tintLight},${num(g.chatScrimLight, 0.10)});
   --wb-skin-saturate:${lightSat};${accentLight}
 }`.trim();

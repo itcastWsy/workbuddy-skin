@@ -178,13 +178,13 @@ body[data-wb-skin="on"]:has(.conversation-shell .cr-message-list) #wb-skin-bg {
   filter: brightness(0.82) saturate(1.05);
 }
 
-/* 浅色模式反向调节：正文是深色文字，壁纸不能压暗（暗区会吃掉对比度），
- * 改为轻微提亮 + 降饱和，把壁纸推向“明亮淡彩”的浅色底。 */
+/* 浅色模式反向调节：正文是深色文字，壁纸不能压暗（暗区会吃掉对比度）。
+ * 只做极轻微的提亮，主要可读性由玻璃卡片承担，壁纸保持清晰可见。 */
 body[data-wb-skin="on"].vscode-light:has(.chat-container:not(.chat-container--welcome)) #wb-skin-bg,
 body[data-wb-skin="on"][data-vscode-theme-kind="vscode-light"]:has(.chat-container:not(.chat-container--welcome)) #wb-skin-bg,
 body[data-wb-skin="on"].vscode-light:has(.conversation-shell .cr-message-list) #wb-skin-bg,
 body[data-wb-skin="on"][data-vscode-theme-kind="vscode-light"]:has(.conversation-shell .cr-message-list) #wb-skin-bg {
-  filter: brightness(1.10) saturate(0.85);
+  filter: brightness(1.05) saturate(0.96);
 }
 
 /* ===== 6. 卡片 / 气泡 / 建议卡玻璃化 ====================================== */

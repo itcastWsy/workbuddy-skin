@@ -105,7 +105,7 @@ function bakeRuntime(themePath, { bgAbs, portraitAbs, accent } = {}) {
     // Light: subtle white wash mirroring the dark overlay strength (0.10/0.22/0.46),
     // just enough to take the edge off — wallpaper colors must stay clearly visible.
     // Readability is carried by glass cards, not by a full-page veil.
-    obj.background.light = `linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.18) 55%, rgba(240,243,255,0.32) 100%), url('${url}')`;
+    obj.background.light = `linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.10) 55%, rgba(240,243,255,0.20) 100%), url('${url}')`;
   }
   // 由壁纸自动取到的强调色（染玻璃描边/悬停/滚动条）；无则不写，注入器回退默认描边。
   if (accent) obj.accent = accent;

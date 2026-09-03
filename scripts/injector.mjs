@@ -210,7 +210,7 @@ body[data-wb-skin="${MARKER}"].vscode-light,
 body[data-wb-skin="${MARKER}"][data-vscode-theme-kind="vscode-light"]{
   --wb-skin-panel:rgba(255,255,255,${num(g.panelOpacityLight, 0.58)});
   --wb-skin-card:rgba(255,255,255,${num(g.cardOpacityLight, 0.72)});
-  --wb-skin-scrim:rgba(255,255,255,${num(g.chatScrimLight, 0.22)});
+  --wb-skin-scrim:rgba(255,255,255,${num(g.chatScrimLight, 0.10)});
   --wb-skin-saturate:${lightSat};${accentLight}
 }`.trim();
 

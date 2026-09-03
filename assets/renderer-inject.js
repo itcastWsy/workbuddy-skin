@@ -19,6 +19,7 @@
   var STYLE_VARS_ID = "wb-skin-vars";
   var STYLE_MAIN_ID = "wb-skin-style";
   var DECO_STYLE_ID = "wb-skin-deco-style";
+  var FRAME_SCRIM_ID = "wb-skin-frame-scrim";
   var BG_ID = "wb-skin-bg";
   var DECO_ID = "wb-skin-deco";
   var MARKER = CFG.marker || "on";
@@ -154,13 +155,104 @@
     }
   }
 
+  // ---- 通用透明清扫器 ------------------------------------------------------
+  // 各页面根容器命名不统一（wb-home-route / conversation-shell / claw-workspace…），
+  // 逐个枚举不可持续。这里按“结构特征”通用识别：主布局 .teams-container 内、
+  // 大尺寸块级容器、实底(alpha>=0.5)、非浮层语境 -> 置透明。
+  // skin.css 中玻璃面板/卡片/输入框规则带 !important，优先级始终高于此处的 inline 样式，
+  // 因此已玻璃化的元件不受清扫影响。命中元素打 data-wb-skin-clear 标记防重复处理。
+  var SWEEP_MARK = "data-wb-skin-clear";
+  var SWEEP_MIN_W = 240, SWEEP_MIN_H = 160;
+  var OVERLAY_SEL = '[role="dialog"],[role="menu"],[role="listbox"],[role="tooltip"]'
+    + ',[class*="modal"],[class*="dialog"],[class*="drawer"],[class*="popover"]'
+    + ',[class*="dropdown"],[class*="overlay"],[class*="picker"],[class*="toast"]'
+    + ',[class*="tooltip"],[class*="menu"]';
+
+  function inOverlayContext(el) {
+    try {
+      if (el.matches(OVERLAY_SEL)) return true;
+      var p = el.parentElement;
+      while (p && !p.classList.contains("teams-container")) {
+        if (p.matches(OVERLAY_SEL)) return true;
+        p = p.parentElement;
+      }
+    } catch (e) { }
+    return false;
+  }
+
+  function sweepTransparent() {
+    // 主文档限定 .teams-container（避开 portal 出来的弹层）；跨域 iframe（sweepBody）
+    // 没有 .teams-container，退回 body 作用域，靠浮层排除规则兜底。
+    var root = document.querySelector(".teams-container")
+      || ((CFG.sweepBody && document.body) ? document.body : null);
+    if (!root) return;
+    var all = root.querySelectorAll("div,main,section,article,aside,header,footer,nav");
+    var budget = 600; // 单轮预算，防超大子树卡顿
+    for (var i = 0; i < all.length && budget > 0; i++) {
+      var el = all[i];
+      if (el.hasAttribute(SWEEP_MARK)) continue;
+      var r = el.getBoundingClientRect();
+      if (r.width < SWEEP_MIN_W || r.height < SWEEP_MIN_H) continue;
+      budget--;
+      var cs;
+      try { cs = getComputedStyle(el); } catch (e) { continue; }
+      if (cs.position === "fixed") continue;
+      var m = /rgba?\(([^)]+)\)/.exec(cs.backgroundColor || "");
+      var alpha = 1;
+      if (m) {
+        var parts = m[1].split(",");
+        if (parts.length >= 4) alpha = parseFloat(parts[3]);
+      }
+      if (alpha < 0.5) continue;
+      if (inOverlayContext(el)) continue;
+      el.style.background = "transparent";
+      el.setAttribute(SWEEP_MARK, "1");
+    }
+  }
+
+  var sweepTimer = null;
+  function scheduleSweep() {
+    if (sweepTimer) return;
+    sweepTimer = setTimeout(function () {
+      sweepTimer = null;
+      try { sweepTransparent(); } catch (e) { }
+      // 路由切换可能整体重建 .teams-container，每次清扫后校正观察目标
+      try { attachSweepWatcher(); } catch (e) { }
+    }, 350);
+  }
+
+  // 观察 .teams-container（iframe 模式为 body）子树变化，防抖后重扫。
+  // attributes:false -> 我们自己写的 inline style/标记不会再触发观察器，无回环。
+  function attachSweepWatcher() {
+    var root = document.querySelector(".teams-container")
+      || ((CFG.sweepBody && document.body) ? document.body : null);
+    if (!root) return;
+    if (window.__wbSkinSweepRoot === root) return;
+    if (!window.__wbSkinSweepObserver) {
+      window.__wbSkinSweepObserver = new MutationObserver(scheduleSweep);
+    }
+    try { window.__wbSkinSweepObserver.disconnect(); } catch (e) { }
+    window.__wbSkinSweepObserver.observe(root, { childList: true, subtree: true });
+    window.__wbSkinSweepRoot = root;
+  }
+
   function apply() {
     if (CFG.varsCss) upsertStyle(STYLE_VARS_ID, CFG.varsCss);
     if (CFG.skinCss) upsertStyle(STYLE_MAIN_ID, CFG.skinCss);
-    if (CFG.decoCss) upsertStyle(DECO_STYLE_ID, CFG.decoCss);
+    // 装饰层（立绘/印章等）只属于主窗口；跨域 iframe 内不渲染避免重复贴图
+    if (CFG.decoCss && window.self === window.top) upsertStyle(DECO_STYLE_ID, CFG.decoCss);
+    // iframe 内没有 section 5 的任务页 scrim，给壁纸层加统一可读性遮罩（模糊+scrim，随明暗变量走）
+    if (CFG.sweepBody) {
+      upsertStyle(FRAME_SCRIM_ID,
+        'body[data-wb-skin="on"] #wb-skin-bg::after{content:"";position:absolute;inset:0;'
+        + 'background:var(--wb-skin-scrim, rgba(8,10,22,0.35));'
+        + '-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);}');
+    }
     ensureBgLayer();
     markBody();
-    renderDecos();
+    if (window.self === window.top) renderDecos();
+    try { sweepTransparent(); } catch (e) { }
+    try { attachSweepWatcher(); } catch (e) { }
   }
 
   // ---- 幂等安装 ------------------------------------------------------------
@@ -207,11 +299,23 @@
   window.__wbSkinRemove = function () {
     try { if (window.__wbSkinObserver) window.__wbSkinObserver.disconnect(); } catch (e) { }
     window.__wbSkinObserver = null;
-    [STYLE_VARS_ID, STYLE_MAIN_ID, DECO_STYLE_ID, BG_ID, DECO_ID].forEach(function (id) {
+    try { if (window.__wbSkinSweepObserver) window.__wbSkinSweepObserver.disconnect(); } catch (e) { }
+    window.__wbSkinSweepObserver = null;
+    window.__wbSkinSweepRoot = null;
+    if (sweepTimer) { clearTimeout(sweepTimer); sweepTimer = null; }
+    [STYLE_VARS_ID, STYLE_MAIN_ID, DECO_STYLE_ID, FRAME_SCRIM_ID, BG_ID, DECO_ID].forEach(function (id) {
       var el = document.getElementById(id);
       if (el && el.parentNode) el.parentNode.removeChild(el);
     });
     if (document.body) document.body.removeAttribute("data-wb-skin");
+    // 还原清扫器透明化过的元素：去掉标记并清掉我们写的 inline background
+    try {
+      var cleared = document.querySelectorAll("[" + SWEEP_MARK + "]");
+      for (var i = 0; i < cleared.length; i++) {
+        cleared[i].removeAttribute(SWEEP_MARK);
+        cleared[i].style.background = "";
+      }
+    } catch (e) { }
     try { delete window.__WB_SKIN_CONFIG; } catch (e) { window.__WB_SKIN_CONFIG = undefined; }
     return true;
   };

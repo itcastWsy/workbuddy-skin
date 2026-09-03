@@ -32,12 +32,12 @@
   --wb-skin-dur-fast: 160ms;
 }
 
-/* ---- 明色模式变量覆盖 ---------------------------------------------------- */
+/* ---- 明色模式变量覆盖 ----------------------------------------------------
+ * 玻璃不透明度 / 饱和度（panel/card/scrim/saturate）由 injector 的 varsCss
+ * 按主题写入：浅色白纱会冲淡背景色相，injector 会按 ×1.76 补偿饱和度，
+ * 让顶栏/侧栏在可读的白 veil 下仍透出壁纸色调。此处只覆盖质感 token。 */
 body[data-application-name="workbuddy"][data-wb-skin="on"].vscode-light,
 body[data-application-name="workbuddy"][data-wb-skin="on"][data-vscode-theme-kind="vscode-light"] {
-  --wb-skin-panel: rgba(255, 255, 255, 0.52);
-  --wb-skin-card: rgba(255, 255, 255, 0.62);
-  --wb-skin-scrim: rgba(255, 255, 255, 0.24);
   --wb-skin-border: rgba(15, 23, 42, 0.08);
   --wb-skin-border-strong: rgba(15, 23, 42, 0.14);
   --wb-skin-gloss: rgba(255, 255, 255, 0.55);
@@ -95,7 +95,20 @@ body[data-wb-skin="on"] .welcome-only-wrapper,
 body[data-wb-skin="on"] [class*="_grid_"],
 body[data-wb-skin="on"] [class*="_gridView_"],
 body[data-wb-skin="on"] [class*="_gridViewItem_"],
-body[data-wb-skin="on"] [class*="_cbChat_"] {
+body[data-wb-skin="on"] [class*="_cbChat_"],
+/* v5.5.x 新会话页壳层：conversation-shell 是实底 rgb(20,20,20)，正好盖住壁纸；
+ * cr-* 系列是其内部的消息列表/文档/代理容器（实测均透明，这里一并兜底防升级）。
+ * 首页同理：v5.5.x 把首页换成 wb-home-* 家族，MAIN.wb-home-route 实底 rgb(20,20,20)。 */
+body[data-wb-skin="on"] .conversation-shell,
+body[data-wb-skin="on"] .conversation-shell__main,
+body[data-wb-skin="on"] [class*="cr-message-list"],
+body[data-wb-skin="on"] [class*="cr-theme"],
+body[data-wb-skin="on"] [class*="cr-frame"],
+body[data-wb-skin="on"] [class*="cr-document"],
+body[data-wb-skin="on"] [class*="cr-agent"],
+body[data-wb-skin="on"] [class*="wb-home-"],
+/* 助理/专家中心等 claw 工作区（v5.5.x 实底 rgb(31,31,31)） */
+body[data-wb-skin="on"] [class*="claw-workspace"] {
   background: transparent !important;
 }
 
@@ -144,10 +157,11 @@ body[data-wb-skin="on"] #workbuddy-menubar-container {
 }
 
 /* ===== 5. 任务/对话页：加一层可读性 scrim（首页不加，保持氛围感） ========= */
-/* 首页 = .chat-container--welcome，保持通透。新版（5.3.5+）已去掉外层的
- * .main-content--chat 壳（现在是 teams-container → _grid_ → _gridView_），因此
- * 直接用 .chat-container:not(.chat-container--welcome) 作为“已进入任务页”的信号。*/
-body[data-wb-skin="on"] .chat-container:not(.chat-container--welcome)::before {
+/* v5.3.5+ 用 .chat-container:not(--welcome) 作为任务页信号；v5.5.x 起改为
+ * .conversation-shell（其内出现 .cr-message-list 即视为已进入具体任务对话，
+ * 首页无消息列表不命中）。两套选择器并存兼容新旧版本。*/
+body[data-wb-skin="on"] .chat-container:not(.chat-container--welcome)::before,
+body[data-wb-skin="on"] .conversation-shell:has(.cr-message-list)::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -159,7 +173,8 @@ body[data-wb-skin="on"] .chat-container:not(.chat-container--welcome)::before {
 }
 
 /* 任务页时把背景层轻微压暗，减少与正文争夺注意力 */
-body[data-wb-skin="on"]:has(.chat-container:not(.chat-container--welcome)) #wb-skin-bg {
+body[data-wb-skin="on"]:has(.chat-container:not(.chat-container--welcome)) #wb-skin-bg,
+body[data-wb-skin="on"]:has(.conversation-shell .cr-message-list) #wb-skin-bg {
   filter: brightness(0.82) saturate(1.05);
 }
 
@@ -229,9 +244,12 @@ body[data-wb-skin="on"][data-vscode-theme-kind="vscode-light"] [class*="_assista
 }
 
 /* ===== 7. 输入框 / composer 玻璃化 ======================================== */
+/* v5.5.x composer 换成 cr-input-container（原实底 rgb(36,38,41)），
+ * 可编辑区哈希前缀从 _editable_5t975 变为 _editable_11uqr 等，改用宽匹配。 */
 body[data-wb-skin="on"] [class*="_inlineInputContainer_"],
 body[data-wb-skin="on"] [class*="_inputBottom_"],
-body[data-wb-skin="on"] [class*="_editable_5t975"],
+body[data-wb-skin="on"] [class*="_editable_"],
+body[data-wb-skin="on"] .cr-input-container,
 body[data-wb-skin="on"] textarea {
   background: var(--wb-skin-card) !important;
   -webkit-backdrop-filter: blur(calc(var(--wb-skin-blur) * 0.7)) saturate(var(--wb-skin-saturate));
@@ -248,8 +266,9 @@ body[data-wb-skin="on"] textarea {
 /* 聚焦时描边随强调色/高光提亮，给出清晰的输入焦点反馈 */
 body[data-wb-skin="on"] [class*="_inlineInputContainer_"]:focus-within,
 body[data-wb-skin="on"] [class*="_inputBottom_"]:focus-within,
-body[data-wb-skin="on"] [class*="_editable_5t975"]:focus,
-body[data-wb-skin="on"] [class*="_editable_5t975"]:focus-within,
+body[data-wb-skin="on"] [class*="_editable_"]:focus,
+body[data-wb-skin="on"] [class*="_editable_"]:focus-within,
+body[data-wb-skin="on"] .cr-input-container:focus-within,
 body[data-wb-skin="on"] textarea:focus {
   border-color: var(--wb-skin-accent, var(--wb-skin-border-strong)) !important;
   box-shadow: var(--wb-skin-shadow), inset 0 1px 0 var(--wb-skin-gloss);
@@ -358,7 +377,7 @@ body[data-wb-skin="on"] [role="menu"] {
   body[data-wb-skin="on"] .sidebar-next,
   body[data-wb-skin="on"] [class*="_inlineInputContainer_"],
   body[data-wb-skin="on"] [class*="_inputBottom_"],
-  body[data-wb-skin="on"] [class*="_editable_5t975"],
+  body[data-wb-skin="on"] [class*="_editable_"],
   body[data-wb-skin="on"] textarea,
   body[data-wb-skin="on"] ::-webkit-scrollbar-thumb {
     transition: none !important;

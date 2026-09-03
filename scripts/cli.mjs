@@ -102,7 +102,9 @@ function bakeRuntime(themePath, { bgAbs, portraitAbs, accent } = {}) {
     const url = fileUrlOf(bgAbs);
     // Dark: top bright (sky), bottom slightly darker for input-bar readability.
     obj.background.dark = `linear-gradient(180deg, rgba(8,10,22,0.10) 0%, rgba(8,10,22,0.22) 55%, rgba(8,10,22,0.46) 100%), url('${url}')`;
-    obj.background.light = `linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.16) 100%), url('${url}')`;
+    // Light: thicker white wash + cool neutral tint so the wallpaper blends with light UI
+    // instead of fighting it. Bottom is more opaque for composer readability.
+    obj.background.light = `linear-gradient(180deg, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0.52) 55%, rgba(240,243,255,0.72) 100%), url('${url}')`;
   }
   // 由壁纸自动取到的强调色（染玻璃描边/悬停/滚动条）；无则不写，注入器回退默认描边。
   if (accent) obj.accent = accent;

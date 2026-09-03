@@ -150,7 +150,8 @@ const DECO_CSS = `
 #wb-skin-deco .wb-deco-item{position:absolute;pointer-events:none;user-select:none;}
 #wb-skin-deco .wb-deco-item img{display:block;max-width:none;}
 #wb-skin-deco .wb-deco-ph{border:2px dashed rgba(120,120,120,0.55);border-radius:16px;display:flex;align-items:center;justify-content:center;text-align:center;color:rgba(90,90,90,0.75);font-size:13px;padding:10px;box-sizing:border-box;background:rgba(255,255,255,0.06);}
-body[data-wb-skin="on"]:has(.main-content--chat .chat-container:not(.chat-container--welcome)) #wb-skin-deco .deco--welcome{display:none;}`.trim();
+body[data-wb-skin="on"]:has(.main-content--chat .chat-container:not(.chat-container--welcome)) #wb-skin-deco .deco--welcome,
+body[data-wb-skin="on"]:has(.conversation-shell .cr-message-list) #wb-skin-deco .deco--welcome{display:none;}`.trim();
 
 
 // ---- 主题 -> 载荷 ----------------------------------------------------------
@@ -171,6 +172,9 @@ function buildConfig() {
   const bg = theme.background || {};
   const blur = Number(g.blur ?? 22);
   const sat = Number(g.saturate ?? 1.25);
+  // 浅色白纱（半透明白 veil）会把模糊背景的色相冲淡成“默认灰白”，
+  // 故浅色模式按 ×1.76 补偿饱和度，让顶栏/侧栏玻璃透出壁纸色调。
+  const lightSat = Math.round(sat * 1.76 * 100) / 100;
   const num = (v, d) => (v == null ? d : Number(v));
 
   // 内联本地壁纸为 data URI（若 background 用的是 file:// 图片）
@@ -204,17 +208,19 @@ body[data-wb-skin="${MARKER}"]{
 }
 body[data-wb-skin="${MARKER}"].vscode-light,
 body[data-wb-skin="${MARKER}"][data-vscode-theme-kind="vscode-light"]{
-  --wb-skin-panel:rgba(255,255,255,${num(g.panelOpacityLight, 0.52)});
-  --wb-skin-card:rgba(255,255,255,${num(g.cardOpacityLight, 0.62)});
-  --wb-skin-scrim:rgba(255,255,255,${num(g.chatScrimLight, 0.24)});${accentLight}
+  --wb-skin-panel:rgba(255,255,255,${num(g.panelOpacityLight, 0.58)});
+  --wb-skin-card:rgba(255,255,255,${num(g.cardOpacityLight, 0.72)});
+  --wb-skin-scrim:rgba(255,255,255,${num(g.chatScrimLight, 0.30)});
+  --wb-skin-saturate:${lightSat};${accentLight}
 }`.trim();
 
   return { varsCss, skinCss, decoCss: DECO_CSS, decorations, marker: MARKER, themeName: theme.name || theme.id || "skin" };
 }
 
-function buildPayload(config) {
+function buildPayload(config, extra = null) {
   const injectSrc = loadAsset("renderer-inject.js");
-  return `window.__WB_SKIN_CONFIG=${JSON.stringify(config)};\n${injectSrc}`;
+  const cfg = extra ? { ...config, ...extra } : config;
+  return `window.__WB_SKIN_CONFIG=${JSON.stringify(cfg)};\n${injectSrc}`;
 }
 
 const REMOVE_PAYLOAD = `(function(){
@@ -245,7 +251,9 @@ async function fetchTargets() {
 }
 
 function isWorkBuddyRenderer(t) {
-  if (t.type !== "page" || !t.webSocketDebuggerUrl) return false;
+  // page = 主窗口文档；iframe = 内嵌远程页（如资料库 space-panel，跨域无法从主文档触达，
+  // 但 CDP 将其暴露为独立目标，可单独注入实现内部换肤）。
+  if ((t.type !== "page" && t.type !== "iframe") || !t.webSocketDebuggerUrl) return false;
   const hay = `${t.url || ""} ${t.title || ""}`.toLowerCase();
   return (
     hay.includes("app.asar/renderer") ||
@@ -362,11 +370,15 @@ async function waitForTargets(retries = 40, delay = 500) {
 async function cmdApply() {
   const config = buildConfig();
   const payload = buildPayload(config);
+  // iframe 内没有 .teams-container，清扫器改为以 body 为作用域（见 renderer-inject.js）
+  const payloadFrame = buildPayload(config, { sweepBody: true });
   const targets = await waitForTargets();
   log(`主题 "${config.themeName}" -> ${targets.length} 个渲染进程`);
   for (const t of targets) {
-    try { await injectInto(t, payload); log("已注入:", t.title || t.url); }
-    catch (e) { warn("注入失败:", t.title || t.url, "-", e.message); }
+    try {
+      await injectInto(t, t.type === "iframe" ? payloadFrame : payload);
+      log("已注入:", t.title || t.url);
+    } catch (e) { warn("注入失败:", t.title || t.url, "-", e.message); }
   }
   log("应用完成。");
 }
@@ -537,6 +549,7 @@ async function cmdDom() {
 async function cmdWatch() {
   const config = buildConfig();
   const payload = buildPayload(config);
+  const payloadFrame = buildPayload(config, { sweepBody: true });
   const seen = new Set();
   log(`watch 模式启动 (端口 ${PORT})，Ctrl+C 退出。`);
   let stopped = false;
@@ -552,7 +565,7 @@ async function cmdWatch() {
     for (const t of targets) {
       if (seen.has(t.id)) continue;
       seen.add(t.id);
-      try { await injectInto(t, payload); log("watch 注入:", t.title || t.url); }
+      try { await injectInto(t, t.type === "iframe" ? payloadFrame : payload); log("watch 注入:", t.title || t.url); }
       catch (e) { warn("watch 注入失败:", e.message); seen.delete(t.id); }
     }
     // 清掉已消失目标, 便于重连

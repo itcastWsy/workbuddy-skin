@@ -38,11 +38,12 @@
  * 让顶栏/侧栏在可读的白 veil 下仍透出壁纸色调。此处只覆盖质感 token。 */
 body[data-application-name="workbuddy"][data-wb-skin="on"].vscode-light,
 body[data-application-name="workbuddy"][data-wb-skin="on"][data-vscode-theme-kind="vscode-light"] {
-  --wb-skin-border: rgba(15, 23, 42, 0.08);
-  --wb-skin-border-strong: rgba(15, 23, 42, 0.14);
-  --wb-skin-gloss: rgba(255, 255, 255, 0.55);
-  --wb-skin-shadow: 0 10px 28px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.08);
-  --wb-skin-shadow-soft: 0 6px 18px rgba(15, 23, 42, 0.08);
+  /* 「象牙暖纱」质感：暖调描边/阴影与夕阳光壁纸呼应，高光更亮以凸显玻璃棱面 */
+  --wb-skin-border: rgba(121, 85, 60, 0.14);
+  --wb-skin-border-strong: rgba(121, 85, 60, 0.22);
+  --wb-skin-gloss: rgba(255, 255, 255, 0.70);
+  --wb-skin-shadow: 0 10px 28px rgba(140, 95, 55, 0.14), 0 2px 6px rgba(140, 95, 55, 0.08);
+  --wb-skin-shadow-soft: 0 6px 18px rgba(140, 95, 55, 0.08);
 }
 
 /* ===== 1. 背景层 ========================================================== */

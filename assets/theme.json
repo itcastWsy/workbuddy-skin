@@ -14,10 +14,11 @@
     "blur": 22,
     "saturate": 1.25,
     "panelOpacityDark": 0.46,
-    "panelOpacityLight": 0.38,
+    "panelOpacityLight": 0.4,
     "cardOpacityDark": 0.34,
-    "cardOpacityLight": 0.42,
-    "chatScrimDark": 0.30,
-    "chatScrimLight": 0.10
+    "cardOpacityLight": 0.46,
+    "chatScrimDark": 0.3,
+    "chatScrimLight": 0.08,
+    "tintLight": "255,250,243"
   }
 }

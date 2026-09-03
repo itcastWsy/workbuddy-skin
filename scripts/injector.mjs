@@ -173,8 +173,14 @@ function buildConfig() {
   const blur = Number(g.blur ?? 22);
   const sat = Number(g.saturate ?? 1.25);
   // 浅色白纱（半透明白 veil）会把模糊背景的色相冲淡成“默认灰白”，
-  // 故浅色模式按 ×1.76 补偿饱和度，让顶栏/侧栏玻璃透出壁纸色调。
-  const lightSat = Math.round(sat * 1.76 * 100) / 100;
+  // 故浅色模式按 ×1.45 补偿饱和度，让顶栏/侧栏玻璃透出壁纸色调。
+  const lightSat = Math.round(sat * 1.45 * 100) / 100;
+  // 浅色玻璃色调（RGB 三元组字符串），暖象牙 "255,250,243" 可与夕阳光壁纸呼应；
+  // 纯白主题可不写此键。暗值/非法值回退纯白。
+  const tintRaw = typeof g.tintLight === "string" ? g.tintLight.trim() : "";
+  const tintLight = /^\d{1,3},\s*\d{1,3},\s*\d{1,3}$/.test(tintRaw)
+    ? tintRaw.split(",").map((n) => Math.min(255, Number(n.trim()))).join(",")
+    : "255,255,255";
   const num = (v, d) => (v == null ? d : Number(v));
 
   // 内联本地壁纸为 data URI（若 background 用的是 file:// 图片）
@@ -194,7 +200,8 @@ function buildConfig() {
     ? `\n  --wb-skin-accent:${theme.accent};\n  --wb-skin-border:rgba(${acc.r},${acc.g},${acc.b},${a[0]}) !important;\n  --wb-skin-border-strong:rgba(${acc.r},${acc.g},${acc.b},${a[1]}) !important;`
     : "";
   const accentDark = accVars([0.30, 0.44]);
-  const accentLight = accVars([0.32, 0.48]);
+  // 浅色描边轻勾（0.20/0.32）：过重会让白卡边缘发脏
+  const accentLight = accVars([0.20, 0.32]);
 
   // 由主题生成的 CSS 变量层, 覆盖 skin.css 里的回退值。明/暗各一套。
   const varsCss = `
@@ -208,9 +215,9 @@ body[data-wb-skin="${MARKER}"]{
 }
 body[data-wb-skin="${MARKER}"].vscode-light,
 body[data-wb-skin="${MARKER}"][data-vscode-theme-kind="vscode-light"]{
-  --wb-skin-panel:rgba(255,255,255,${num(g.panelOpacityLight, 0.38)});
-  --wb-skin-card:rgba(255,255,255,${num(g.cardOpacityLight, 0.42)});
-  --wb-skin-scrim:rgba(255,255,255,${num(g.chatScrimLight, 0.10)});
+  --wb-skin-panel:rgba(${tintLight},${num(g.panelOpacityLight, 0.38)});
+  --wb-skin-card:rgba(${tintLight},${num(g.cardOpacityLight, 0.42)});
+  --wb-skin-scrim:rgba(${tintLight},${num(g.chatScrimLight, 0.10)});
   --wb-skin-saturate:${lightSat};${accentLight}
 }`.trim();
 

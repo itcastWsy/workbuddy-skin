@@ -20,8 +20,9 @@
 //                --restart  --watch  --no-launch
 // ============================================================================
 
-import { existsSync, copyFileSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
+import { existsSync, copyFileSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from "node:fs";
 import { join, resolve, basename } from "node:path";
+import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import * as P from "./platform.mjs";
 import { processIntoStore, dominantAccent } from "./image.mjs";
@@ -316,6 +317,13 @@ async function cmdRestore() {
   if (state && state.watchPid) {
     try { process.kill(Number(state.watchPid)); P.info(`Stopped watch daemon PID ${state.watchPid}.`); } catch { /* gone */ }
   }
+  // 还原 = 回到官方外观：一并关掉自动注入（否则守护会把皮肤注回来）
+  if (state && state.autoInject !== false) {
+    P.saveState({ autoInject: false });
+    autoStopDaemon();
+    try { unlinkSync(autoVbsPath()); } catch { /* 本就没装 */ }
+    P.info("已同时关闭自动换肤守护；需要再开启请运行 `workbuddy-skin auto on`。");
+  }
   // best-effort live cleanup
   let port = Number(args.port || 0);
   if (port <= 0 && state && state.port) port = Number(state.port);
@@ -551,6 +559,98 @@ async function cmdAutostart() {
   if (errors) P.warn(`${errors} shortcut(s) could not be updated (all-users scope likely needs admin). Re-run in an elevated terminal to include them.`);
 }
 
+// ---- auto: 打开 WorkBuddy 即自动有皮肤（后台守护）--------------------------
+// 轮询（3s）：WorkBuddy 在跑 且 调试端口可达 且 本会话尚未注入 → 按当前 state
+// （主题/壁纸/取色）热注入。WorkBuddy 重启（进程 PID 组合变化）后自动重注入；
+// state.autoInject === false 时守护自动退出（restore / auto off 都会写该标记）。
+const AUTO_POLL_MS = 3000;
+
+function autoPidFile() { return join(P.stateDir(), "auto.pid"); }
+function autoVbsPath() {
+  return join(process.env.APPDATA || "", "Microsoft", "Windows", "Start Menu", "Programs", "Startup", "workbuddy-skin-auto.vbs");
+}
+function autoSessionKey() {
+  return P.listProcesses().map((p) => p.pid).sort((a, b) => a - b).join(",");
+}
+async function resolveRuntimeTheme(state) {
+  let themePath = resolveThemePath(null, state);
+  const bg = state && state.background && existsSync(state.background) ? state.background : null;
+  const portrait = state && state.portrait && existsSync(state.portrait) && themeHasPortraitSlot(themePath) ? state.portrait : null;
+  if (bg || portrait) {
+    themePath = bakeRuntime(themePath, { bgAbs: bg, portraitAbs: portrait, accent: (state && state.accent) || null });
+  }
+  return themePath;
+}
+function autoDaemonAlive() {
+  try {
+    const pid = Number(readFileSync(autoPidFile(), "utf8").trim());
+    if (!pid) return false;
+    process.kill(pid, 0); // 存活探针：能发 0 号信号即为活
+    return true;
+  } catch { return false; }
+}
+function autoStopDaemon() {
+  try {
+    const pid = Number(readFileSync(autoPidFile(), "utf8").trim());
+    if (pid) { process.kill(pid); P.info(`已停止自动换肤守护（pid ${pid}）。`); }
+  } catch { /* 守护本就没在跑 */ }
+  try { unlinkSync(autoPidFile()); } catch { /* 文件本就不存在 */ }
+}
+
+// 守护主循环：`workbuddy-skin auto`（由开机启动项拉起，窗口完全隐藏）
+async function cmdAuto() {
+  const st = P.readState();
+  if (!st || !st.exe) { P.err("尚未初始化：先运行一次 apply。"); process.exit(1); }
+  writeFileSync(autoPidFile(), String(process.pid), "utf8");
+  P.ok(`自动换肤守护已启动（pid ${process.pid}）：WorkBuddy 一开，皮肤自动就位。`);
+  let injectedKey = null;
+  for (;;) {
+    try {
+      const cur = P.readState() || {};
+      if (cur.autoInject === false) { P.info("autoInject=false，守护退出。"); break; }
+      const running = P.listProcesses().length > 0;
+      const port = Number(cur.port || P.readPersistedCdpPort() || 9345);
+      const live = running && await P.isPortReachable(port);
+      if (!live) { injectedKey = null; }
+      else {
+        const key = autoSessionKey();
+        if (key !== injectedKey) {
+          const themePath = await resolveRuntimeTheme(cur);
+          P.info(`检测到 WorkBuddy（端口 ${port}），自动注入皮肤 ...`);
+          const r = await P.runInjector(["apply", "--port", String(port), "--theme", themePath]);
+          if (r.status === 0) { injectedKey = key; P.ok("自动注入完成。"); }
+        }
+      }
+    } catch { /* 守护进程保持静默，下一轮重试 */ }
+    await P.sleep(AUTO_POLL_MS);
+  }
+  try { unlinkSync(autoPidFile()); } catch { /* 已被清理 */ }
+}
+
+// `auto on`：写登录自启 VBS（隐藏窗口）+ 立即拉起守护
+async function cmdAutoOn() {
+  if (!P.IS_WIN) { P.warn("auto 目前仅支持 Windows（macOS/Linux 可把 `workbuddy-skin auto` 写入 shell rc 自行实现）。"); return; }
+  const node = process.execPath;
+  const cli = join(P.ROOT, "scripts", "cli.mjs");
+  const vbs = autoVbsPath();
+  writeFileSync(vbs, `CreateObject("WScript.Shell").Run """${node}"" ""${cli}"" auto", 0, False\r\n`, "utf8");
+  P.saveState({ autoInject: true });
+  P.ok(`已开启开机自动换肤（登录自启项：${vbs}）。`);
+  if (autoDaemonAlive()) { P.info("守护已在运行，无需重复拉起。"); return; }
+  const child = spawn(node, [cli, "auto"], { detached: true, stdio: "ignore", windowsHide: true });
+  child.unref();
+  await P.sleep(600);
+  P.ok(autoDaemonAlive() ? "守护已启动：现在起，WorkBuddy 每次打开皮肤都会自动就位。" : "守护启动中：稍后自动生效。");
+}
+
+// `auto off`：移除自启项 + 停守护（皮肤保留现状，但不再自动注入）
+async function cmdAutoOff() {
+  try { unlinkSync(autoVbsPath()); } catch { /* 本就没装 */ }
+  P.saveState({ autoInject: false });
+  autoStopDaemon();
+  P.ok("已关闭开机自动换肤（当前皮肤保留，但 WorkBuddy 重开后不再自动注入）。");
+}
+
 // Version: injected at build time via esbuild `define` (__WB_VERSION__ becomes a
 // string literal in the packaged exe); in dev (plain node) it's undeclared, so
 // fall back to reading package.json from the project root.
@@ -581,6 +681,9 @@ Commands:
                                port (recommended; survives app self-updates)
   autostart [undo]             (legacy) patch WorkBuddy shortcuts to self-open
                                the debug port; prefer enable-cdp instead
+  auto [on|off]                打开 WorkBuddy 即自动有皮肤：on 写登录自启项并
+                               启动守护；off 移除。守护检测到 WorkBuddy 启动
+                               且调试端口可达时，按当前主题/壁纸自动热注入
   status                       show current state
   dom [--selector <css>]       inspect the live WorkBuddy DOM via CDP (a built-in
                                DevTools substitute: selector census + new-shell
@@ -647,6 +750,8 @@ async function interactiveMenu() {
       console.log("  5) 还原为官方外观");
       if (P.IS_WIN) console.log("  6) 开启持久换肤（写入环境变量，无需重启即可换肤）");
       console.log("  7) 指定 WorkBuddy 位置（自动找不到时手动指定）");
+      const autoState = (P.readState() || {}).autoInject;
+      console.log(`  8) 开机自动换肤：${autoState === false ? "关（点击开启）" : "开（点击关闭）"}`);
       console.log("  0) 退出");
       const c = await ask(rl, "\n请输入序号后回车：");
       try {
@@ -670,6 +775,7 @@ async function interactiveMenu() {
         else if (c === "5") { await cmdRestore(); await pause(); }
         else if (c === "6" && P.IS_WIN) { await cmdEnableCdp(); await pause(); }
         else if (c === "7") { await setExeInteractive(rl); await pause(); }
+        else if (c === "8") { await (autoState === false ? cmdAutoOn() : cmdAutoOff()); await pause(); }
         else if (c === "0" || c.toLowerCase() === "q") { break; }
         else { console.log("无效的选项。"); }
       } catch (e) { P.err(e.message); await pause(); }
@@ -716,6 +822,11 @@ async function softExit(code) {
       case "enable-cdp": case "cdp": await cmdEnableCdp(); break;
       case "dom": case "inspect": await cmdDom(); break;
       case "autostart": await cmdAutostart(); break;
+      case "auto":
+        if (SUB === "on") await cmdAutoOn();
+        else if (SUB === "off") await cmdAutoOff();
+        else await cmdAuto();
+        break;
       case "status": await cmdStatus(); break;
       case "help": case "--help": case "-h": cmdHelp(); break;
       case "version": case "--version": case "-v": console.log(appVersion()); break;

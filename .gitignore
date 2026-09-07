@@ -22,3 +22,9 @@ Thumbs.db
 # editor
 .vscode/
 .idea/
+
+# AI 工具本地配置
+.zcode/
+
+# 视频工程（成片 workbuddy-skin-final.mp4 / cover.jpg 体积大，发布时挂 GitHub Release 即可）
+.video/

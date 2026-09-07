@@ -260,11 +260,12 @@ async function cmdApply() {
       }
       P.stopProcesses();
       if (!(await P.isPortFree(port))) port = await P.findFreePort(port);
-      // 用官方环境变量方式拉起（不受单实例锁影响）；若已持久化相同端口则普通启动即可。
-      if (envAttached) P.launchNormal(exe); else P.launchDebugViaEnv(exe, port);
+      // 工具自己拉起 WorkBuddy 时必须显式带上端口环境变量：子进程只继承父进程环境，
+      // 不会读取注册表里持久化的值（那只有 Explorer/开始菜单启动的实例才看得到）。
+      P.launchDebugViaEnv(exe, port);
     } else {
       if (!(await P.isPortFree(port))) port = await P.findFreePort(port);
-      if (envAttached) P.launchNormal(exe); else P.launchDebugViaEnv(exe, port);
+      P.launchDebugViaEnv(exe, port);
     }
   }
 
